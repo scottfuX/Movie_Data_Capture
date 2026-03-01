@@ -1,7 +1,11 @@
 import os.path
 import pathlib
+import re
 import shutil
 import sys
+from enum import IntEnum
+from dataclasses import dataclass
+from typing import Tuple, Optional
 
 from PIL import Image
 from io import BytesIO
@@ -12,6 +16,340 @@ from ADC_function import *
 from scraper import get_data_from_json
 from number_parser import is_uncensored
 from ImageProcessing import cutImage
+
+
+# ========================================================================
+# 版本类型枚举和优先级定义
+# ========================================================================
+class VersionType(IntEnum):
+    """影片版本类型，值越大优先级越高"""
+    ORIGINAL = 0      # 原版
+    CHINESE = 1       # -C 中文字幕
+    UNCENSORED = 1    # -U 无码破解
+    LEAK = 2          # -L 流出
+    UC_COMBO = 2      # -UC 无码破解+中文
+
+
+@dataclass
+class VersionInfo:
+    """版本信息"""
+    version_type: VersionType
+    cn_sub: bool          # 中文字幕标记
+    leak: bool            # 流出标记
+    hack: bool            # 破解标记
+    c_word: str           # -C 后缀
+    leak_word: str        # -leak 后缀
+    hack_word: str        # -hack 后缀
+    original_suffix: str  # 原始文件名中的版本后缀 (如 -C, -U, -UC, -L 等)
+
+    @property
+    def priority(self) -> int:
+        """返回优先级分数（从配置读取）"""
+        conf = config.getInstance()
+        if not conf.duplicate_enable_version_check():
+            # 如果未启用版本检测，使用默认枚举值
+            return int(self.version_type)
+
+        # 根据版本类型从配置读取优先级
+        if self.version_type == VersionType.UC_COMBO:
+            return conf.duplicate_priority_uc()
+        elif self.version_type == VersionType.LEAK:
+            return conf.duplicate_priority_leak()
+        elif self.version_type == VersionType.CHINESE:
+            return conf.duplicate_priority_chinese()
+        elif self.version_type == VersionType.UNCENSORED:
+            return conf.duplicate_priority_uncensored()
+        else:  # ORIGINAL
+            return conf.duplicate_priority_original()
+
+    def get_version_suffix(self) -> str:
+        """
+        获取版本标识后缀用于文件命名
+
+        返回原始文件名中的版本标识，用于保持命名一致性：
+        - -C (中文字幕)
+        - -U (无码破解)
+        - -UC (无码破解+中文)
+        - -L (流出)
+        - -LC (流出+中文)
+        - 空字符串 (原版)
+        """
+        return self.original_suffix
+
+
+# ========================================================================
+# 版本解析函数
+# ========================================================================
+def parse_version_from_path(movie_path: str, number: str) -> VersionInfo:
+    """
+    从文件路径解析版本信息
+
+    Args:
+        movie_path: 视频文件路径
+        number: 已提取的番号
+
+    Returns:
+        VersionInfo: 版本信息对象
+    """
+    cn_sub = False
+    leak = False
+    hack = False
+    c_word = ''
+    leak_word = ''
+    hack_word = ''
+
+    # 检测中文字幕标记
+    if re.search(r'[-_]C(\.\w+$|-\w+)|\d+ch(\.\w+$|-\w+)', movie_path, re.I) \
+       or '中文' in movie_path or '字幕' in movie_path \
+       or ".chs" in movie_path or '.cht' in movie_path:
+        cn_sub = True
+        c_word = '-C'
+
+    # 检测流出标记
+    if '流出' in movie_path or 'uncensored' in movie_path.lower() \
+       or 'leak' in movie_path.lower():
+        leak = True
+        leak_word = '-leak'
+
+    # 检测破解标记
+    if 'hack' in str(movie_path).lower() or '破解' in movie_path:
+        hack = True
+        hack_word = '-hack'
+
+    # 特殊组合标记 -UC (无码破解+中文)
+    if '-uc' in str(movie_path).lower():
+        hack = True
+        hack_word = '-hack'
+        cn_sub = True
+        c_word = '-C'
+
+    # -U 单独标记 (无码破解，但不是 -UC)
+    if '-u' in str(movie_path).lower() and '-uc' not in str(movie_path).lower():
+        hack = True
+        hack_word = '-hack'
+
+    # -LC 组合标记 (流出+中文)
+    if '-lc' in str(movie_path).lower():
+        leak = True
+        leak_word = '-leak'
+        cn_sub = True
+        c_word = '-C'
+
+    # -L 单独标记 (流出，但不是 -LC)
+    if '-l' in str(movie_path).lower() and '-lc' not in str(movie_path).lower():
+        leak = True
+        leak_word = '-leak'
+
+    # 确定版本类型
+    if hack and cn_sub:  # -UC 情况
+        version_type = VersionType.UC_COMBO
+    elif leak:
+        version_type = VersionType.LEAK
+    elif hack:
+        version_type = VersionType.UNCENSORED
+    elif cn_sub:
+        version_type = VersionType.CHINESE
+    else:
+        version_type = VersionType.ORIGINAL
+
+    # 提取原始文件名中的版本后缀 (用于保持命名一致性)
+    # 按优先级检测: -UC > -LC > -U > -L > -C > 空
+    original_suffix = ''
+    filename = os.path.basename(movie_path)
+    filename_lower = filename.lower()
+
+    # 检测 -UC 或 -hack-C (无码破解+中文)
+    if re.search(r'[-_]uc(?=\.\w+$|[-_]|$)', filename_lower) or \
+       re.search(r'[-_]hack[-_]c(?=\.\w+$|[-_]|$)', filename_lower) or \
+       (re.search(r'[-_]hack', filename_lower) and cn_sub):
+        original_suffix = '-UC'
+    # 检测 -LC (流出+中文)
+    elif re.search(r'[-_]lc(?=\.\w+$|[-_]|$)', filename_lower):
+        original_suffix = '-LC'
+    # 检测 -U 或 -hack (排除 -UC, -hack-C)
+    elif (re.search(r'[-_]u(?=\.\w+$|[-_]|$)', filename_lower) and not re.search(r'[-_]uc', filename_lower)) or \
+         (re.search(r'[-_]hack(?=\.\w+$|[-_]|$)', filename_lower) and not cn_sub):
+        original_suffix = '-U'
+    # 检测 -L 或 -leak (排除 -LC)
+    elif (re.search(r'[-_]l(?=\.\w+$|[-_]|$)', filename_lower) and not re.search(r'[-_]lc', filename_lower)) or \
+         re.search(r'[-_]leak(?=\.\w+$|[-_]|$)', filename_lower):
+        original_suffix = '-L'
+    # 检测 -C (中文字幕)
+    elif re.search(r'[-_]c(?=\.\w+$|[-_]|$)', filename_lower) or \
+         re.search(r'\d+ch(?=\.\w+$|[-_]|$)', filename_lower) or \
+         '中文' in filename or '字幕' in filename:
+        original_suffix = '-C'
+
+    return VersionInfo(
+        version_type=version_type,
+        cn_sub=cn_sub,
+        leak=leak,
+        hack=hack,
+        c_word=c_word,
+        leak_word=leak_word,
+        hack_word=hack_word,
+        original_suffix=original_suffix
+    )
+
+
+# ========================================================================
+# 重复检测和处理函数
+# ========================================================================
+def check_existing_videos(output_dir: pathlib.Path, number: str, version_info: VersionInfo) -> dict:
+    """
+    检查输出目录中已存在的同名番号视频
+
+    Args:
+        output_dir: 输出目录路径
+        number: 番号
+        version_info: 当前文件的版本信息
+
+    Returns:
+        {
+            'exists': bool,           # 是否存在任何版本
+            'same_version': bool,     # 是否存在相同版本
+            'existing_file': Path,    # 已存在的文件路径
+            'existing_version': VersionInfo,  # 已存在文件的版本信息
+        }
+    """
+    result = {
+        'exists': False,
+        'same_version': False,
+        'existing_file': None,
+        'existing_version': None,
+    }
+
+    if not output_dir.exists():
+        return result
+
+    # 获取当前版本的后缀
+    current_suffix = version_info.get_version_suffix()
+
+    # 查找所有匹配该番号的视频文件
+    video_extensions = config.getInstance().media_type().lower().split(',')
+    for ext in video_extensions:
+        ext = ext.strip()
+        if not ext.startswith('.'):
+            ext = '.' + ext
+        # 查找所有版本的视频文件
+        pattern = f"{number}*{ext}"
+        for existing_file in output_dir.glob(pattern):
+            # 排除多部分文件的 part 标识进行版本比较
+            existing_name = existing_file.stem
+            # 移除 -CD1, -CD2 等多部分标识
+            existing_name_no_part = re.sub(r'[-_]CD\d+$', '', existing_name, flags=re.IGNORECASE)
+
+            # 解析已存在文件的版本
+            existing_version = parse_version_from_path(str(existing_file), number)
+            existing_suffix = existing_version.get_version_suffix()
+
+            # 构建期望的文件名模式
+            expected_name = f"{number}{current_suffix}"
+            existing_expected_name = f"{number}{existing_suffix}"
+
+            # 检查是否是相同版本（忽略多部分标识）
+            if existing_name_no_part == expected_name or existing_suffix == current_suffix:
+                result['exists'] = True
+                result['same_version'] = True
+                result['existing_file'] = existing_file
+                result['existing_version'] = existing_version
+                return result
+
+            # 找到了不同版本
+            result['exists'] = True
+            result['existing_file'] = existing_file
+            result['existing_version'] = existing_version
+
+    return result
+
+
+def delete_associated_files(video_file: pathlib.Path, number: str, version_suffix: str):
+    """删除与视频文件关联的 NFO、图片等文件"""
+    dir_path = video_file.parent
+
+    # 删除 NFO 文件
+    nfo_pattern = f"{number}{version_suffix}*.nfo"
+    for f in dir_path.glob(nfo_pattern):
+        f.unlink(missing_ok=True)
+        print(f"[+]Deleted associated file: {f.name}")
+
+    # 删除图片文件
+    for img_suffix in ['.jpg', '.png']:
+        # poster, fanart, thumb 等
+        for img_type in ['-poster', '-fanart', '-thumb', '']:
+            img_pattern = f"{number}{version_suffix}{img_type}{img_suffix}"
+            for img_file in dir_path.glob(img_pattern):
+                img_file.unlink(missing_ok=True)
+                print(f"[+]Deleted associated file: {img_file.name}")
+
+
+def handle_duplicate_video(
+    movie_path: str,
+    output_dir: pathlib.Path,
+    number: str,
+    version_info: VersionInfo
+) -> Tuple[bool, str]:
+    """
+    处理重复视频
+
+    Args:
+        movie_path: 当前处理的视频文件路径
+        output_dir: 输出目录
+        number: 番号
+        version_info: 当前文件的版本信息
+
+    Returns:
+        (should_continue, action_message)
+        should_continue: True 表示继续刮削，False 表示跳过
+        action_message: 操作说明
+    """
+    check_result = check_existing_videos(output_dir, number, version_info)
+
+    if not check_result['exists']:
+        return True, "No existing video found"
+
+    existing_file = check_result['existing_file']
+    existing_version = check_result['existing_version']
+    current_suffix = version_info.get_version_suffix()
+    existing_suffix = existing_version.get_version_suffix()
+
+    # 情况1: 相同版本 - 比较文件创建时间，新的保留
+    if check_result['same_version']:
+        # 使用 st_ctime 获取文件创建时间（Windows）或元数据变更时间（Unix）
+        new_file_time = os.path.getctime(movie_path)
+        old_file_time = existing_file.stat().st_ctime
+
+        if new_file_time > old_file_time:
+            # 删除旧文件，继续处理新文件
+            print(f"[!]Found duplicate version with older creation time, replacing...")
+            existing_file.unlink()
+            print(f"[+]Deleted older file: {existing_file.name}")
+            # 同时删除关联的 NFO 和图片
+            delete_associated_files(existing_file, number, existing_suffix)
+            return True, f"Replaced older version with newer file (by creation time)"
+
+        # 旧文件更新，跳过新文件
+        return False, f"Skipped: existing file has newer creation time"
+
+    # 情况2: 不同版本，检查优先级关系
+    current_priority = version_info.priority
+    existing_priority = existing_version.priority
+
+    # 同一优先级组内（都是2或都是1或都是0）=> 共存
+    if current_priority == existing_priority:
+        return True, f"Coexisting: different version in same priority group (current: {current_suffix or 'original'}, existing: {existing_suffix or 'original'})"
+
+    # 不同优先级组 => 高优先级覆盖低优先级
+    if current_priority > existing_priority:
+        # 当前文件优先级更高，删除旧文件
+        print(f"[!]Found lower priority version ({existing_suffix or 'original'}), replacing with higher priority ({current_suffix or 'original'})...")
+        existing_file.unlink()
+        print(f"[+]Deleted lower priority file: {existing_file.name}")
+        delete_associated_files(existing_file, number, existing_suffix)
+        return True, f"Replaced lower priority version ({existing_suffix or 'original'}) with higher priority ({current_suffix or 'original'})"
+
+    # 当前文件优先级更低，跳过
+    return False, f"Skipped: existing version ({existing_suffix or 'original'}) has higher priority than current ({current_suffix or 'original'})"
 
 
 # from WebCrawler import get_data_from_json
@@ -952,40 +1290,64 @@ def core_main(movie_path, number_th, oCC, specified_source=None, specified_url=N
     existing_output_dir = None
     for output_dir in possible_output_dirs:
         if output_dir.exists():
-            # 查找可能的nfo文件
-            nfo_files = list(output_dir.glob(f'{number}*.nfo'))
-            poster_file = output_dir / 'poster.jpg'
-            
+            # ========== 新增: 版本检测和重复处理 ==========
+            # 解析当前文件的版本信息
+            version_info = parse_version_from_path(movie_path, number)
+
+            # 处理重复视频
+            should_continue, action_msg = handle_duplicate_video(
+                movie_path, output_dir, number, version_info
+            )
+
+            if not should_continue:
+                print(f"[!] {action_msg}")
+                print("[*]======================================================")
+                return
+
+            print(f"[+] {action_msg}")
+
+            # 查找可能的nfo文件（带版本标识）
+            version_suffix = version_info.get_version_suffix()
+            nfo_pattern = f'{number}{version_suffix}*.nfo' if version_suffix else f'{number}*.nfo'
+            nfo_files = list(output_dir.glob(nfo_pattern))
+            # 同时检查标准 poster 命名
+            poster_file = output_dir / f'{number}{version_suffix}-poster.jpg' if version_suffix else output_dir / 'poster.jpg'
+            # 如果带版本标识的 poster 不存在，也检查标准命名
+            if not poster_file.is_file():
+                poster_file = output_dir / 'poster.jpg'
+
             if nfo_files and poster_file.is_file():
                 existing_output_dir = output_dir
                 print(f'[!]Found existing output directory: {output_dir}')
                 print(f'[!]NFO file exists: {nfo_files[0].name}')
-                print(f'[!]Poster file exists: poster.jpg')
-                
+                print(f'[!]Poster file exists: {poster_file.name}')
+
                 # 检查是否需要添加角标
                 if conf.is_watermark():
-                    thumb_file = output_dir / 'thumb.jpg'
+                    thumb_file = output_dir / f'{number}{version_suffix}-thumb.jpg' if version_suffix else output_dir / 'thumb.jpg'
+                    if not thumb_file.is_file():
+                        thumb_file = output_dir / 'thumb.jpg'
                     if thumb_file.is_file():
                         add_mark(str(poster_file), str(thumb_file), cn_sub, leak, uncensored, hack, _4k, iso)
                         print('[+]Watermark added to existing poster and thumb')
                     else:
                         add_mark(str(poster_file), str(poster_file), cn_sub, leak, uncensored, hack, _4k, iso)
                         print('[+]Watermark added to existing poster')
-                
+
                 # 移动视频文件到输出目录
                 if re.search(r'[-_]CD\d+', movie_path, re.IGNORECASE):
                     multi_part = True
                     part = re.findall(r'[-_]CD\d+', movie_path, re.IGNORECASE)[0].upper()
-                
+
                 leak_word = temp_leak_word
                 c_word = temp_c_word
                 hack_word = temp_hack_word
-                
+
                 paste_file_to_folder(movie_path, str(output_dir), multi_part, number, part, leak_word, c_word, hack_word)
-                
+
                 # 移动字幕文件
                 move_subtitles(movie_path, str(output_dir), multi_part, number, part, leak_word, c_word, hack_word)
-                
+
                 print('[+]Skipped scraping, NFO and poster already exist in output directory')
                 print("[*]======================================================")
                 return

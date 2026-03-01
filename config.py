@@ -434,6 +434,33 @@ class Config:
     def download_actor_photo_for_kodi(self) -> bool:
         return self.conf.getboolean("actor_photo", "download_for_kodi", fallback=False)
 
+    # ========================================================================
+    # 重复影片处理配置
+    # ========================================================================
+    def duplicate_enable_version_check(self) -> bool:
+        """是否启用版本检测和重复处理"""
+        return self.conf.getboolean("duplicate", "enable_version_check", fallback=True)
+
+    def duplicate_priority_uc(self) -> int:
+        """-UC (无码破解+中文) 优先级"""
+        return self.conf.getint("duplicate", "priority_uc", fallback=2)
+
+    def duplicate_priority_leak(self) -> int:
+        """-L (流出) 优先级"""
+        return self.conf.getint("duplicate", "priority_leak", fallback=2)
+
+    def duplicate_priority_chinese(self) -> int:
+        """-C (中文字幕) 优先级"""
+        return self.conf.getint("duplicate", "priority_chinese", fallback=1)
+
+    def duplicate_priority_uncensored(self) -> int:
+        """-U (无码破解) 优先级"""
+        return self.conf.getint("duplicate", "priority_uncensored", fallback=1)
+
+    def duplicate_priority_original(self) -> int:
+        """原版优先级"""
+        return self.conf.getint("duplicate", "priority_original", fallback=0)
+
     @staticmethod
     def _exit(sec: str) -> None:
         print("[-] Read config error! Please check the {} section in config.ini", sec)
