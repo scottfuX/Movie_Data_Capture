@@ -1,5 +1,3 @@
---index-url https://pypi.tuna.tsinghua.edu.cn/simple
-
 requests
 dlib-bin
 Click
@@ -7,11 +5,11 @@ numpy
 face-recognition-models
 lxml
 beautifulsoup4
-pillow==9.5.0
+pillow>=10.0.0
 cloudscraper
 curl_cffi
-pysocks==1.7.1
-urllib3==1.25.11
+pysocks
+urllib3>=1.26.0
 certifi
 MechanicalSoup
 opencc-python-reimplemented

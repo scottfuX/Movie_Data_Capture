@@ -130,6 +130,13 @@ def download_file_with_filename(url, filename, path, filepath, json_headers=None
             if r == '':
                 print('[-]Movie Download Data not found!')
                 return
+            # # 验证下载的图片是否完整
+            # if filename.lower().endswith(('.jpg', '.jpeg', '.png', '.gif', '.webp')):
+            #     try:
+            #         img = Image.open(BytesIO(r))
+            #         img.load()  # 强制加载所有像素数据来验证完整性
+            #     except Exception as img_err:
+            #         print(f'[-]Downloaded image is corrupted, retrying... {img_err}')
             with open(os.path.join(path, filename), "wb") as code:
                 code.write(r)
             return
@@ -574,7 +581,7 @@ def add_to_pic(pic_path, img_pic, size, count, mode):
     img_subt = Image.open(mark_pic_path)
     scroll_high = int(img_pic.height / size)
     scroll_wide = int(scroll_high * img_subt.width / img_subt.height)
-    img_subt = img_subt.resize((scroll_wide, scroll_high), Image.ANTIALIAS)
+    img_subt = img_subt.resize((scroll_wide, scroll_high), Image.Resampling.LANCZOS)
     r, g, b, a = img_subt.split()  # 获取颜色通道，保持png的透明性
     # 封面四个角的位置
     pos = [

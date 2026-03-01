@@ -74,26 +74,33 @@ def cutImage(imagecut, path, thumb_path, poster_path, skip_facerec=False):
         try:
             img = Image.open(fullpath_fanart)
             width, height = img.size
-            if width/height > 2/3:  # 如果宽度大于2
+            print(f"[+]Image Cutting...  {Path(fullpath_fanart).name}, size: {width}x{height}")
+            if float(width)/float(height) > float(2.0/3):  # 如果宽度大于2
                 if imagecut == 4:
+                    # print(f"[+]以人像为中心切取...  {Path(fullpath_fanart).name}")
                     # 以人像为中心切取
                     img2 = img.crop(face_crop_width(fullpath_fanart, width, height))
                 elif skip_facerec:
                     # 有码封面默认靠右切
+                    # print(f"[+]有码封面默认靠右切...  {Path(fullpath_fanart).name}")
                     img2 = img.crop((width - int(height / 3) * aspect_ratio, 0, width, height))
                 else:
                     # 以人像为中心切取
+                    # print(f"[+]以人像为中心切取...  {Path(fullpath_fanart).name}")
                     img2 = img.crop(face_crop_width(fullpath_fanart, width, height))
-            elif width/height < 2/3:  # 如果高度大于3
+            elif float(width)/float(height) < float(2.0/3):  # 如果高度大于3
                 # 从底部向上切割
+                # print(f"[+]从底部向上切割...  {Path(fullpath_fanart).name}")
                 img2 = img.crop(face_crop_height(fullpath_fanart, width, height))
             else:  # 如果等于2/3
+                # print(f"[+]不做处理...  {Path(fullpath_fanart).name}")
                 img2 = img
             img2.save(fullpath_poster)
             print(f"[+]Image Cutted!     {Path(fullpath_poster).name}")
         except Exception as e:
             print(e)
             print('[-]Cover cut failed!')
+            # exit(1)
     elif imagecut == 0:  # 复制封面
         shutil.copyfile(fullpath_fanart, fullpath_poster)
         print(f"[+]Image Copyed!     {Path(fullpath_poster).name}")
