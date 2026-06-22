@@ -26,7 +26,7 @@ class VersionType(IntEnum):
     ORIGINAL = 0      # 原版
     CHINESE = 1       # -C 中文字幕
     UNCENSORED = 1    # -U 无码破解
-    LEAK = 2          # -L 流出
+    LEAK = 2          # -leak 流出
     UC_COMBO = 2      # -UC 无码破解+中文
 
 
@@ -36,21 +36,15 @@ class VersionInfo:
     version_type: VersionType
     cn_sub: bool          # 中文字幕标记
     leak: bool            # 流出标记
-    hack: bool            # 破解标记
-    c_word: str           # -C 后缀
-    leak_word: str        # -leak 后缀
-    hack_word: str        # -hack 后缀
-    original_suffix: str  # 原始文件名中的版本后缀 (如 -C, -U, -UC, -L 等)
+    hack: bool            # 破解/无码标记
 
     @property
     def priority(self) -> int:
         """返回优先级分数（从配置读取）"""
         conf = config.getInstance()
         if not conf.duplicate_enable_version_check():
-            # 如果未启用版本检测，使用默认枚举值
             return int(self.version_type)
 
-        # 根据版本类型从配置读取优先级
         if self.version_type == VersionType.UC_COMBO:
             return conf.duplicate_priority_uc()
         elif self.version_type == VersionType.LEAK:
@@ -59,22 +53,25 @@ class VersionInfo:
             return conf.duplicate_priority_chinese()
         elif self.version_type == VersionType.UNCENSORED:
             return conf.duplicate_priority_uncensored()
-        else:  # ORIGINAL
+        else:
             return conf.duplicate_priority_original()
 
     def get_version_suffix(self) -> str:
         """
-        获取版本标识后缀用于文件命名
-
-        返回原始文件名中的版本标识，用于保持命名一致性：
-        - -C (中文字幕)
-        - -U (无码破解)
-        - -UC (无码破解+中文)
-        - -L (流出)
-        - -LC (流出+中文)
-        - 空字符串 (原版)
+        获取统一的版本标识后缀用于文件命名:
+        -C / -U / -UC / -leak / -leak-C / 空字符串
         """
-        return self.original_suffix
+        if self.hack and self.cn_sub:
+            return '-UC'
+        elif self.hack:
+            return '-U'
+        elif self.leak and self.cn_sub:
+            return '-leak-C'
+        elif self.leak:
+            return '-leak'
+        elif self.cn_sub:
+            return '-C'
+        return ''
 
 
 # ========================================================================
@@ -82,66 +79,53 @@ class VersionInfo:
 # ========================================================================
 def parse_version_from_path(movie_path: str, number: str) -> VersionInfo:
     """
-    从文件路径解析版本信息
-
-    Args:
-        movie_path: 视频文件路径
-        number: 已提取的番号
-
-    Returns:
-        VersionInfo: 版本信息对象
+    从文件路径解析版本信息，统一识别各种标记并返回 VersionInfo。
+    支持识别: -C, -U, -UC, -leak, -L, -LC, -hack, 以及中文关键词。
     """
     cn_sub = False
     leak = False
     hack = False
-    c_word = ''
-    leak_word = ''
-    hack_word = ''
+
+    filename = os.path.basename(movie_path)
+    filename_lower = filename.lower()
 
     # 检测中文字幕标记
     if re.search(r'[-_]C(\.\w+$|-\w+)|\d+ch(\.\w+$|-\w+)', movie_path, re.I) \
        or '中文' in movie_path or '字幕' in movie_path \
        or ".chs" in movie_path or '.cht' in movie_path:
         cn_sub = True
-        c_word = '-C'
 
     # 检测流出标记
     if '流出' in movie_path or 'uncensored' in movie_path.lower() \
        or 'leak' in movie_path.lower():
         leak = True
-        leak_word = '-leak'
 
-    # 检测破解标记
+    # 检测破解/无码标记 (hack 或 破解)
     if 'hack' in str(movie_path).lower() or '破解' in movie_path:
         hack = True
-        hack_word = '-hack'
 
-    # 特殊组合标记 -UC (无码破解+中文)
-    if '-uc' in str(movie_path).lower():
+    # -UC 组合标记 (无码破解+中文)
+    if re.search(r'[-_]uc(?=\.\w+$|[-_]|$)', filename_lower):
         hack = True
-        hack_word = '-hack'
         cn_sub = True
-        c_word = '-C'
 
-    # -U 单独标记 (无码破解，但不是 -UC)
-    if '-u' in str(movie_path).lower() and '-uc' not in str(movie_path).lower():
+    # -U 单独标记 (无码破解，排除 -UC)
+    if re.search(r'[-_]u(?=\.\w+$|[-_]|$)', filename_lower) and \
+       not re.search(r'[-_]uc', filename_lower):
         hack = True
-        hack_word = '-hack'
 
     # -LC 组合标记 (流出+中文)
-    if '-lc' in str(movie_path).lower():
+    if re.search(r'[-_]lc(?=\.\w+$|[-_]|$)', filename_lower):
         leak = True
-        leak_word = '-leak'
         cn_sub = True
-        c_word = '-C'
 
-    # -L 单独标记 (流出，但不是 -LC)
-    if '-l' in str(movie_path).lower() and '-lc' not in str(movie_path).lower():
+    # -L 单独标记 (流出，排除 -LC)
+    if re.search(r'[-_]l(?=\.\w+$|[-_]|$)', filename_lower) and \
+       not re.search(r'[-_]lc', filename_lower):
         leak = True
-        leak_word = '-leak'
 
     # 确定版本类型
-    if hack and cn_sub:  # -UC 情况
+    if hack and cn_sub:
         version_type = VersionType.UC_COMBO
     elif leak:
         version_type = VersionType.LEAK
@@ -152,65 +136,29 @@ def parse_version_from_path(movie_path: str, number: str) -> VersionInfo:
     else:
         version_type = VersionType.ORIGINAL
 
-    # 提取原始文件名中的版本后缀 (用于保持命名一致性)
-    # 按优先级检测: -UC > -LC > -U > -L > -C > 空
-    original_suffix = ''
-    filename = os.path.basename(movie_path)
-    filename_lower = filename.lower()
-
-    # 检测 -UC 或 -hack-C (无码破解+中文)
-    if re.search(r'[-_]uc(?=\.\w+$|[-_]|$)', filename_lower) or \
-       re.search(r'[-_]hack[-_]c(?=\.\w+$|[-_]|$)', filename_lower) or \
-       (re.search(r'[-_]hack', filename_lower) and cn_sub):
-        original_suffix = '-UC'
-    # 检测 -LC (流出+中文)
-    elif re.search(r'[-_]lc(?=\.\w+$|[-_]|$)', filename_lower):
-        original_suffix = '-LC'
-    # 检测 -U 或 -hack (排除 -UC, -hack-C)
-    elif (re.search(r'[-_]u(?=\.\w+$|[-_]|$)', filename_lower) and not re.search(r'[-_]uc', filename_lower)) or \
-         (re.search(r'[-_]hack(?=\.\w+$|[-_]|$)', filename_lower) and not cn_sub):
-        original_suffix = '-U'
-    # 检测 -L 或 -leak (排除 -LC)
-    elif (re.search(r'[-_]l(?=\.\w+$|[-_]|$)', filename_lower) and not re.search(r'[-_]lc', filename_lower)) or \
-         re.search(r'[-_]leak(?=\.\w+$|[-_]|$)', filename_lower):
-        original_suffix = '-L'
-    # 检测 -C (中文字幕)
-    elif re.search(r'[-_]c(?=\.\w+$|[-_]|$)', filename_lower) or \
-         re.search(r'\d+ch(?=\.\w+$|[-_]|$)', filename_lower) or \
-         '中文' in filename or '字幕' in filename:
-        original_suffix = '-C'
-
     return VersionInfo(
         version_type=version_type,
         cn_sub=cn_sub,
         leak=leak,
         hack=hack,
-        c_word=c_word,
-        leak_word=leak_word,
-        hack_word=hack_word,
-        original_suffix=original_suffix
     )
 
 
 # ========================================================================
 # 重复检测和处理函数
 # ========================================================================
-def check_existing_videos(output_dir: pathlib.Path, number: str, version_info: VersionInfo) -> dict:
+def _extract_cd_part(filepath: str) -> str:
+    """从文件路径中提取 -CDx 分片标识，返回如 '-CD1' 或空字符串"""
+    m = re.search(r'[-_]CD\d+', filepath, re.IGNORECASE)
+    return m.group(0).upper() if m else ''
+
+
+def check_existing_videos(output_dir: pathlib.Path, number: str, version_info: VersionInfo,
+                          current_movie_path: str = '') -> dict:
     """
-    检查输出目录中已存在的同名番号视频
-
-    Args:
-        output_dir: 输出目录路径
-        number: 番号
-        version_info: 当前文件的版本信息
-
-    Returns:
-        {
-            'exists': bool,           # 是否存在任何版本
-            'same_version': bool,     # 是否存在相同版本
-            'existing_file': Path,    # 已存在的文件路径
-            'existing_version': VersionInfo,  # 已存在文件的版本信息
-        }
+    检查输出目录中已存在的同名番号视频。
+    遍历目录下所有视频文件，通过 parse_version_from_path 解析版本后比较。
+    多分片文件（-CD1/-CD2/...）只与相同分片号的文件比较，不同分片不算重复。
     """
     result = {
         'exists': False,
@@ -222,43 +170,43 @@ def check_existing_videos(output_dir: pathlib.Path, number: str, version_info: V
     if not output_dir.exists():
         return result
 
-    # 获取当前版本的后缀
     current_suffix = version_info.get_version_suffix()
+    current_cd_part = _extract_cd_part(current_movie_path)
 
-    # 查找所有匹配该番号的视频文件
     video_extensions = config.getInstance().media_type().lower().split(',')
+    ext_set = set()
     for ext in video_extensions:
         ext = ext.strip()
         if not ext.startswith('.'):
             ext = '.' + ext
-        # 查找所有版本的视频文件
-        pattern = f"{number}*{ext}"
-        for existing_file in output_dir.glob(pattern):
-            # 排除多部分文件的 part 标识进行版本比较
-            existing_name = existing_file.stem
-            # 移除 -CD1, -CD2 等多部分标识
-            existing_name_no_part = re.sub(r'[-_]CD\d+$', '', existing_name, flags=re.IGNORECASE)
+        ext_set.add(ext)
 
-            # 解析已存在文件的版本
-            existing_version = parse_version_from_path(str(existing_file), number)
-            existing_suffix = existing_version.get_version_suffix()
+    for existing_file in output_dir.iterdir():
+        if not existing_file.is_file():
+            continue
+        if existing_file.suffix.lower() not in ext_set:
+            continue
+        stem_lower = existing_file.stem.lower()
+        if not stem_lower.startswith(number.lower()):
+            continue
 
-            # 构建期望的文件名模式
-            expected_name = f"{number}{current_suffix}"
-            existing_expected_name = f"{number}{existing_suffix}"
+        existing_cd_part = _extract_cd_part(existing_file.name)
+        if current_cd_part != existing_cd_part:
+            continue
 
-            # 检查是否是相同版本（忽略多部分标识）
-            if existing_name_no_part == expected_name or existing_suffix == current_suffix:
-                result['exists'] = True
-                result['same_version'] = True
-                result['existing_file'] = existing_file
-                result['existing_version'] = existing_version
-                return result
+        existing_version = parse_version_from_path(str(existing_file), number)
+        existing_suffix = existing_version.get_version_suffix()
 
-            # 找到了不同版本
+        if existing_suffix == current_suffix:
             result['exists'] = True
+            result['same_version'] = True
             result['existing_file'] = existing_file
             result['existing_version'] = existing_version
+            return result
+
+        result['exists'] = True
+        result['existing_file'] = existing_file
+        result['existing_version'] = existing_version
 
     return result
 
@@ -267,20 +215,29 @@ def delete_associated_files(video_file: pathlib.Path, number: str, version_suffi
     """删除与视频文件关联的 NFO、图片等文件"""
     dir_path = video_file.parent
 
-    # 删除 NFO 文件
-    nfo_pattern = f"{number}{version_suffix}*.nfo"
-    for f in dir_path.glob(nfo_pattern):
+    for f in dir_path.glob(f"{number}{version_suffix}*.nfo"):
         f.unlink(missing_ok=True)
         print(f"[+]Deleted associated file: {f.name}")
 
-    # 删除图片文件
     for img_suffix in ['.jpg', '.png']:
-        # poster, fanart, thumb 等
         for img_type in ['-poster', '-fanart', '-thumb', '']:
-            img_pattern = f"{number}{version_suffix}{img_type}{img_suffix}"
-            for img_file in dir_path.glob(img_pattern):
+            for img_file in dir_path.glob(f"{number}{version_suffix}{img_type}{img_suffix}"):
                 img_file.unlink(missing_ok=True)
                 print(f"[+]Deleted associated file: {img_file.name}")
+        # 同时清理标准命名的图片 (fanart.jpg, poster.jpg, thumb.jpg)
+        for std_name in ['fanart', 'poster', 'thumb']:
+            std_file = dir_path / f"{std_name}{img_suffix}"
+            if std_file.is_file():
+                std_file.unlink(missing_ok=True)
+                print(f"[+]Deleted associated file: {std_file.name}")
+
+
+def _get_file_time(filepath) -> float:
+    """获取文件的最佳可用时间戳用于比较（优先 birthtime，回退到 mtime）"""
+    st = os.stat(filepath)
+    if hasattr(st, 'st_birthtime'):
+        return st.st_birthtime
+    return st.st_mtime
 
 
 def handle_duplicate_video(
@@ -290,20 +247,9 @@ def handle_duplicate_video(
     version_info: VersionInfo
 ) -> Tuple[bool, str]:
     """
-    处理重复视频
-
-    Args:
-        movie_path: 当前处理的视频文件路径
-        output_dir: 输出目录
-        number: 番号
-        version_info: 当前文件的版本信息
-
-    Returns:
-        (should_continue, action_message)
-        should_continue: True 表示继续刮削，False 表示跳过
-        action_message: 操作说明
+    处理重复视频：相同版本按时间比较，不同版本按优先级处理。
     """
-    check_result = check_existing_videos(output_dir, number, version_info)
+    check_result = check_existing_videos(output_dir, number, version_info, movie_path)
 
     if not check_result['exists']:
         return True, "No existing video found"
@@ -313,42 +259,32 @@ def handle_duplicate_video(
     current_suffix = version_info.get_version_suffix()
     existing_suffix = existing_version.get_version_suffix()
 
-    # 情况1: 相同版本 - 比较文件创建时间，新的保留
     if check_result['same_version']:
-        # 使用 st_ctime 获取文件创建时间（Windows）或元数据变更时间（Unix）
-        new_file_time = os.path.getctime(movie_path)
-        old_file_time = existing_file.stat().st_ctime
+        new_file_time = _get_file_time(movie_path)
+        old_file_time = _get_file_time(str(existing_file))
 
         if new_file_time > old_file_time:
-            # 删除旧文件，继续处理新文件
-            print(f"[!]Found duplicate version with older creation time, replacing...")
+            print(f"[!]Found duplicate version with older timestamp, replacing...")
             existing_file.unlink()
             print(f"[+]Deleted older file: {existing_file.name}")
-            # 同时删除关联的 NFO 和图片
             delete_associated_files(existing_file, number, existing_suffix)
-            return True, f"Replaced older version with newer file (by creation time)"
+            return True, f"Replaced older version with newer file"
 
-        # 旧文件更新，跳过新文件
-        return False, f"Skipped: existing file has newer creation time"
+        return False, f"Skipped: existing file has newer timestamp"
 
-    # 情况2: 不同版本，检查优先级关系
     current_priority = version_info.priority
     existing_priority = existing_version.priority
 
-    # 同一优先级组内（都是2或都是1或都是0）=> 共存
     if current_priority == existing_priority:
         return True, f"Coexisting: different version in same priority group (current: {current_suffix or 'original'}, existing: {existing_suffix or 'original'})"
 
-    # 不同优先级组 => 高优先级覆盖低优先级
     if current_priority > existing_priority:
-        # 当前文件优先级更高，删除旧文件
         print(f"[!]Found lower priority version ({existing_suffix or 'original'}), replacing with higher priority ({current_suffix or 'original'})...")
         existing_file.unlink()
         print(f"[+]Deleted lower priority file: {existing_file.name}")
         delete_associated_files(existing_file, number, existing_suffix)
         return True, f"Replaced lower priority version ({existing_suffix or 'original'}) with higher priority ({current_suffix or 'original'})"
 
-    # 当前文件优先级更低，跳过
     return False, f"Skipped: existing version ({existing_suffix or 'original'}) has higher priority than current ({current_suffix or 'original'})"
 
 
@@ -492,22 +428,22 @@ def download_file_with_filename(url, filename, path, filepath, json_headers=None
     return
 
 
-def trailer_download(trailer, leak_word, c_word, hack_word, number, path, filepath):
-    if download_file_with_filename(trailer, number + leak_word + c_word + hack_word + '-trailer.mp4', path,
-                                   filepath) == 'failed':
+def trailer_download(trailer, version_suffix, number, path, filepath):
+    trailer_name = f"{number}{version_suffix}-trailer.mp4"
+    if download_file_with_filename(trailer, trailer_name, path, filepath) == 'failed':
         return
     configProxy = config.getInstance().proxy()
+    trailer_fullpath = os.path.join(path, trailer_name)
     for i in range(configProxy.retry):
-        if file_not_exist_or_empty(path + '/' + number + leak_word + c_word + hack_word + '-trailer.mp4'):
+        if file_not_exist_or_empty(trailer_fullpath):
             print('[!]Video Download Failed! Trying again. [{}/3]', i + 1)
-            download_file_with_filename(trailer, number + leak_word + c_word + hack_word + '-trailer.mp4', path,
-                                        filepath)
+            download_file_with_filename(trailer, trailer_name, path, filepath)
             continue
         else:
             break
-    if file_not_exist_or_empty(path + '/' + number + leak_word + c_word + hack_word + '-trailer.mp4'):
+    if file_not_exist_or_empty(trailer_fullpath):
         return
-    print('[+]Video Downloaded!', path + '/' + number + leak_word + c_word + hack_word + '-trailer.mp4')
+    print('[+]Video Downloaded!', trailer_fullpath)
 
 
 def actor_photo_download(actors, save_dir, number):
@@ -657,16 +593,14 @@ def image_download(cover, fanart_path, thumb_path, path, filepath, json_headers=
         shutil.copyfile(full_filepath, os.path.join(path, fanart_path))
 
 
-def print_files(path, leak_word, c_word, naming_rule, part, cn_sub, json_data, filepath, tag, actor_list, liuchu,
-                uncensored, hack, hack_word, _4k, fanart_path, poster_path, thumb_path, iso):
+def print_files(path, version_suffix, naming_rule, part, cn_sub, json_data, filepath, tag, actor_list, leak,
+                uncensored, hack, _4k, fanart_path, poster_path, thumb_path, iso):
     title, studio, year, outline, runtime, director, actor_photo, release, number, cover, trailer, website, series, label = get_info(
         json_data)
-    if config.getInstance().main_mode() == 3:  # 模式3下，由于视频文件不做任何改变，.nfo文件必须和视频文件名称除后缀外完全一致，KODI等软件方可支持
+    if config.getInstance().main_mode() == 3:
         nfo_path = str(Path(filepath).with_suffix('.nfo'))
     else:
-        if len(hack_word) > 0 or len(leak_word) > 0:
-          c_word = ""
-        nfo_path = os.path.join(path, f"{number}{part}{leak_word}{c_word}{hack_word}.nfo")
+        nfo_path = os.path.join(path, f"{number}{version_suffix}.nfo")
     try:
         if not os.path.exists(path):
             try:
@@ -746,7 +680,7 @@ def print_files(path, leak_word, c_word, naming_rule, part, cn_sub, json_data, f
                 else:
                     if cn_sub:
                         print("  <tag>中文字幕</tag>", file=code)
-                    if liuchu:
+                    if leak:
                         print("  <tag>流出</tag>", file=code)
                     if uncensored:
                         print("  <tag>无码</tag>", file=code)
@@ -760,7 +694,7 @@ def print_files(path, leak_word, c_word, naming_rule, part, cn_sub, json_data, f
                         print("  <tag>" + i + "</tag>", file=code)
             if cn_sub:
                 print("  <genre>中文字幕</genre>", file=code)
-            if liuchu:
+            if leak:
                 print("  <genre>无码流出</genre>", file=code)
             if uncensored:
                 print("  <genre>无码</genre>", file=code)
@@ -876,8 +810,11 @@ def add_mark_thread(pic_path, cn_sub, leak, uncensored, hack, _4k, iso):
     if uncensored:
         add_to_pic(pic_path, img_pic, size, count, 3)
         count = (count + 1) % 4
-    if hack:
+    if hack and cn_sub:
         add_to_pic(pic_path, img_pic, size, count, 4)
+        count = (count + 1) % 4
+    elif hack:
+        add_to_pic(pic_path, img_pic, size, count, 7)
         count = (count + 1) % 4
     if _4k:
         add_to_pic(pic_path, img_pic, size, count, 5)
@@ -897,11 +834,15 @@ def add_to_pic(pic_path, img_pic, size, count, mode):
     elif mode == 3:
         pngpath = "img/UNCENSORED.png"
     elif mode == 4:
-        pngpath = "img/HACK.png"
+        pngpath = "img/UC.png"
+        if not os.path.isfile(os.path.join(os.path.dirname(os.path.realpath(__file__)), pngpath)):
+            pngpath = "img/HACK.png"
     elif mode == 5:
         pngpath = "img/4K.png"
     elif mode == 6:
         pngpath = "img/ISO.png"
+    elif mode == 7:
+        pngpath = "img/UMR.png"
     else:
         print('[-]Error: watermark image param mode invalid!')
         return
@@ -935,13 +876,11 @@ def add_to_pic(pic_path, img_pic, size, count, mode):
 # ========================结束=================================
 
 
-def paste_file_to_folder(filepath, path, multi_part, number, part, leak_word, c_word, hack_word):  # 文件路径，番号，后缀，要移动至的位置
+def paste_file_to_folder(filepath, path, multi_part, number, part, version_suffix):
     filepath_obj = pathlib.Path(filepath)
     houzhui = filepath_obj.suffix
     try:
-        if len(hack_word) > 0 or len(leak_word) > 0:
-            c_word = ""
-        targetpath = os.path.join(path, f"{number}{leak_word}{c_word}{hack_word}{houzhui}")
+        targetpath = os.path.join(path, f"{number}{version_suffix}{houzhui}")
         # 任何情况下都不要覆盖，以免遭遇数据源或者引擎错误导致所有文件得到同一个number，逐一
         # 同名覆盖致使全部文件损失且不可追回的最坏情况
         if os.path.exists(targetpath):
@@ -980,17 +919,13 @@ def paste_file_to_folder(filepath, path, multi_part, number, part, leak_word, c_
         return
 
 
-def paste_file_to_folder_mode2(filepath, path, multi_part, number, part, leak_word, c_word,
-                               hack_word):  # 文件路径，番号，后缀，要移动至的位置
+def paste_file_to_folder_mode2(filepath, path, multi_part, number, part, version_suffix):
     if multi_part == 1:
-        number += part  # 这时number会被附加上CD1后缀
+        number += part
     filepath_obj = pathlib.Path(filepath)
     houzhui = filepath_obj.suffix
 
-    if len(hack_word) > 0 or len(leak_word) > 0:
-        c_word = ""
-
-    targetpath = os.path.join(path, f"{number}{part}{leak_word}{c_word}{hack_word}{houzhui}")
+    targetpath = os.path.join(path, f"{number}{part}{version_suffix}{houzhui}")
     if os.path.exists(targetpath):
         raise FileExistsError('File Exists on destination path, we will never overwriting.')
     try:
@@ -1020,7 +955,7 @@ def paste_file_to_folder_mode2(filepath, path, multi_part, number, part, leak_wo
         print(f'[-]OS Error errno  {oserr.errno}')
 
 
-def linkImage(path, number, part, leak_word, c_word, hack_word, ext):
+def linkImage(path, number, part, version_suffix, ext):
     """
     首先尝试为图片建立符合Jellyfin封面图文件名规则的硬连接以节省磁盘空间
     如果目标目录无法建立硬链接则将图片复制一份成为常规文件
@@ -1029,10 +964,8 @@ def linkImage(path, number, part, leak_word, c_word, hack_word, ext):
     if not all(len(v) for v in (path, number, part, ext)):
         return
     covers = ("-fanart", "-poster", "-thumb")
-    if len(hack_word) > 0 or len(leak_word) > 0:
-        c_word = ""
-    normal_prefix = f"{number}{leak_word}{c_word}{hack_word}"
-    multi_prefix = f"{number}{part}{leak_word}{c_word}{hack_word}"
+    normal_prefix = f"{number}{version_suffix}"
+    multi_prefix = f"{number}{part}{version_suffix}"
     normal_pathes = (Path(path) / f"{normal_prefix}{c}{ext}" for c in covers)
     multi_pathes = (Path(path) / f"{multi_prefix}{c}{ext}" for c in covers)
     for normal_path, multi_path in zip(normal_pathes, multi_pathes):
@@ -1078,43 +1011,26 @@ def debug_print(data: json):
 def core_main_no_net_op(movie_path, number):
     conf = config.getInstance()
     part = ''
-    leak_word = ''
-    leak = False
-    c_word = ''
-    cn_sub = False
-    hack = False
-    hack_word = ''
     _4k = False
     iso = False
     imagecut = 1
     multi = False
-    part = ''
     path = str(Path(movie_path).parent)
+
+    version_info = parse_version_from_path(movie_path, number)
+    cn_sub = version_info.cn_sub
+    leak = version_info.leak
+    hack = version_info.hack
+    version_suffix = version_info.get_version_suffix()
 
     movie_filename = os.path.basename(movie_path)
 
     if re.search(r'[-_]CD\d+', movie_filename, re.IGNORECASE):
         part = re.findall(r'[-_]CD\d+', movie_filename, re.IGNORECASE)[0].upper()
         multi = True
-    if re.search(r'[-_]C(\.\w+$|-\w+)|\d+ch(\.\w+$|-\w+)', movie_filename,
-                 re.I) or '中文' in movie_filename or '字幕' in movie_filename or ".chs" in movie_filename or '.cht' in movie_filename:
-        cn_sub = True
-        c_word = '-C'  # 中文字幕影片后缀
+
     uncensored = True if is_uncensored(number) else 0
-    if '流出' in movie_filename or 'uncensored' in movie_filename.lower() or 'leak' in movie_filename.lower():
-        leak_word = '-leak'  # 无码流出影片后缀
-        leak = True
 
-    if 'hack'.upper() in str(movie_filename).upper() or '破解' in movie_filename:
-        hack = True
-        hack_word = "-hack"
-
-    # -U 后缀表示破解版
-    if re.search(r'[-_]U(?:\.|$)', movie_filename, re.IGNORECASE):
-        hack = True
-        hack_word = "-hack"
-
-    # 破解版不是无码，hack 优先级高于 uncensored
     if hack:
         uncensored = False
 
@@ -1124,27 +1040,9 @@ def core_main_no_net_op(movie_path, number):
     if '.iso'.upper() in str(movie_filename).upper() or '.iso' in movie_filename:
         iso = True
 
-    if re.search(r'[-_]LC(?:\.|$)', movie_filename, re.IGNORECASE):
-        leak_word = '-leak'  # 无码流出影片后缀
-        leak = True
-        cn_sub = True
-        c_word = '-C'  # 中文字幕影片后缀
+    prestr = f"{number}{version_suffix}{part}"
 
-    if re.search(r'[-_]L(?:\.|$)', movie_filename, re.IGNORECASE):
-        leak_word = '-leak'  # 无码流出影片后缀
-        leak = True
-    # try:
-
-    #     props = get_video_properties(movie_path)  # 判断是否为4K视频
-    #     if props['width'] >= 4096 or props['height'] >= 2160:
-    #         _4k = True
-    # except:
-    #     pass
-    if len(hack_word) > 0 or len(leak_word) > 0:
-        c_word = ""
-    prestr = f"{number}{leak_word}{c_word}{hack_word}"
-
-    full_nfo = Path(path) / f"{prestr}{part}.nfo"
+    full_nfo = Path(path) / f"{prestr}.nfo"
     if full_nfo.is_file():
         if not hack and full_nfo.read_text(encoding='utf-8').find(r'<tag>无码</tag>') >= 0:
             uncensored = True
@@ -1156,13 +1054,9 @@ def core_main_no_net_op(movie_path, number):
             return
     else:
         return
-    fanart_path = f"fanart{ext}"
-    poster_path = f"poster{ext}"
-    thumb_path = f"thumb{ext}"
-    if config.getInstance().image_naming_with_number():
-        fanart_path = f"{prestr}-fanart{ext}"
-        poster_path = f"{prestr}-poster{ext}"
-        thumb_path = f"{prestr}-thumb{ext}"
+    fanart_path = f"{prestr}-fanart{ext}"
+    poster_path = f"{prestr}-poster{ext}"
+    thumb_path = f"{prestr}-thumb{ext}"
     full_fanart_path = os.path.join(path, fanart_path)
     full_poster_path = os.path.join(path, poster_path)
     full_thumb_path = os.path.join(path, thumb_path)
@@ -1175,23 +1069,21 @@ def core_main_no_net_op(movie_path, number):
         add_mark(full_poster_path, full_thumb_path, cn_sub, leak, uncensored, hack, _4k, iso)
 
     if multi and conf.jellyfin_multi_part_fanart():
-        linkImage(path, number, part, leak_word, c_word, hack_word, ext)
+        linkImage(path, number, part, version_suffix, ext)
 
 
-def move_subtitles(filepath, path, multi_part, number, part, leak_word, c_word, hack_word) -> bool:
+def move_subtitles(filepath, path, multi_part, number, part, version_suffix) -> bool:
     filepath_obj = pathlib.Path(filepath)
     link_mode = config.getInstance().link_mode()
     sub_res = config.getInstance().sub_rule()
     result = False
-    if len(hack_word) > 0 or len(leak_word) > 0:
-        c_word = ""
     for subfile in filepath_obj.parent.glob('**/*'):
         if subfile.is_file() and subfile.suffix.lower() in sub_res:
             if multi_part and part.lower() not in subfile.name.lower():
                 continue
             if filepath_obj.stem.split('.')[0].lower() != subfile.stem.split('.')[0].lower():
                 continue
-            sub_targetpath = Path(path) / f"{number}{leak_word}{c_word}{hack_word}{''.join(subfile.suffixes)}"
+            sub_targetpath = Path(path) / f"{number}{version_suffix}{''.join(subfile.suffixes)}"
             if link_mode not in (1, 2):
                 shutil.move(str(subfile), str(sub_targetpath))
                 print(f"[+]Sub Moved!        {sub_targetpath.name}")
@@ -1207,49 +1099,29 @@ def move_subtitles(filepath, path, multi_part, number, part, leak_word, c_word, 
 
 def core_main(movie_path, number_th, oCC, specified_source=None, specified_url=None):
     conf = config.getInstance()
-    # =======================================================================初始化所需变量
     multi_part = False
     part = ''
-    leak_word = ''
-    c_word = ''
-    cn_sub = False
-    liuchu = False
-    hack = False
-    hack_word = ''
     _4k = False
     iso = False
-
-    # 下面被注释的变量不需要
-    # rootpath = os.getcwd
     number = number_th
-    
-    # 检查输出目录是否已存在.nfo和poster文件，如果存在则跳过搜索，直接处理封面角标
-    # 先判断文件名中的特殊标记，用于构建输出路径
-    temp_leak_word = ''
-    temp_c_word = ''
-    temp_hack_word = ''
-    
-    movie_filename = os.path.basename(movie_path)
-    
-    if re.search(r'[-_]C(\.\w+$|-\w+)|\d+ch(\.\w+$|-\w+)', movie_filename,
-                 re.I) or '中文' in movie_filename or '字幕' in movie_filename or ".chs" in movie_filename or '.cht' in movie_filename:
-        cn_sub = True
-        temp_c_word = '-C'
-    
-    if '流出' in movie_filename or 'uncensored' in movie_filename.lower() or 'leak' in movie_filename.lower():
-        temp_leak_word = '-leak'
-        leak = True
-    else:
-        leak = False
-    
-    if 'hack'.upper() in str(movie_filename).upper() or '破解' in movie_filename:
-        hack = True
-        temp_hack_word = "-hack"
 
-    # -U 后缀表示破解版
-    if re.search(r'[-_]U(?:\.|$)', movie_filename, re.IGNORECASE):
-        hack = True
-        temp_hack_word = "-hack"
+    # 统一解析版本信息
+    version_info = parse_version_from_path(movie_path, number)
+    cn_sub = version_info.cn_sub
+    leak = version_info.leak
+    hack = version_info.hack
+    version_suffix = version_info.get_version_suffix()
+
+    movie_filename = os.path.basename(movie_path)
+
+    if re.search(r'[-_]CD\d+', movie_filename, re.IGNORECASE):
+        multi_part = True
+        part = re.findall(r'[-_]CD\d+', movie_filename, re.IGNORECASE)[0].upper()
+
+    uncensored = True if is_uncensored(number) else 0
+
+    if hack:
+        uncensored = False
 
     if '4k'.upper() in str(movie_filename).upper() or '4k' in movie_filename:
         _4k = True
@@ -1257,46 +1129,17 @@ def core_main(movie_path, number_th, oCC, specified_source=None, specified_url=N
     if '.iso'.upper() in str(movie_filename).upper() or '.iso' in movie_filename:
         iso = True
 
-    # 破解版不是无码，hack 优先级高于 uncensored
-    if hack:
-        uncensored = False
-
-    if re.search(r'[-_]LC(?:\.|$)', movie_filename, re.IGNORECASE):
-        temp_leak_word = '-leak'
-        leak = True
-        cn_sub = True
-        temp_c_word = '-C'
-    
-    if re.search(r'[-_]L(?:\.|$)', movie_filename, re.IGNORECASE):
-        temp_leak_word = '-leak'
-        leak = True
-    
-    uncensored = True if is_uncensored(number) else 0
-    
-    # 构建可能的输出目录路径
-    if len(temp_hack_word) > 0 or len(temp_leak_word) > 0:
-        temp_c_word = ""
-    
+    # 检查输出目录是否已存在 nfo 和 poster，如果存在则跳过刮削
     success_folder = Path(conf.success_folder())
-    # 尝试查找输出目录（可能在演员子目录下）
     possible_output_dirs = []
     if success_folder.exists():
-        # 直接在success_folder下查找
         possible_output_dirs.append(success_folder / number)
-        # 在success_folder的子目录中查找
         for subdir in success_folder.glob('*'):
             if subdir.is_dir():
                 possible_output_dirs.append(subdir / number)
-    
-    # 检查是否已存在nfo和poster
-    existing_output_dir = None
+
     for output_dir in possible_output_dirs:
         if output_dir.exists():
-            # ========== 新增: 版本检测和重复处理 ==========
-            # 解析当前文件的版本信息
-            version_info = parse_version_from_path(movie_path, number)
-
-            # 处理重复视频
             should_continue, action_msg = handle_duplicate_video(
                 movie_path, output_dir, number, version_info
             )
@@ -1308,23 +1151,17 @@ def core_main(movie_path, number_th, oCC, specified_source=None, specified_url=N
 
             print(f"[+] {action_msg}")
 
-            # 查找可能的nfo文件（带版本标识）
-            version_suffix = version_info.get_version_suffix()
             nfo_pattern = f'{number}{version_suffix}*.nfo' if version_suffix else f'{number}*.nfo'
             nfo_files = list(output_dir.glob(nfo_pattern))
-            # 同时检查标准 poster 命名
             poster_file = output_dir / f'{number}{version_suffix}-poster.jpg' if version_suffix else output_dir / 'poster.jpg'
-            # 如果带版本标识的 poster 不存在，也检查标准命名
             if not poster_file.is_file():
                 poster_file = output_dir / 'poster.jpg'
 
             if nfo_files and poster_file.is_file():
-                existing_output_dir = output_dir
                 print(f'[!]Found existing output directory: {output_dir}')
                 print(f'[!]NFO file exists: {nfo_files[0].name}')
                 print(f'[!]Poster file exists: {poster_file.name}')
 
-                # 检查是否需要添加角标
                 if conf.is_watermark():
                     thumb_file = output_dir / f'{number}{version_suffix}-thumb.jpg' if version_suffix else output_dir / 'thumb.jpg'
                     if not thumb_file.is_file():
@@ -1336,149 +1173,67 @@ def core_main(movie_path, number_th, oCC, specified_source=None, specified_url=N
                         add_mark(str(poster_file), str(poster_file), cn_sub, leak, uncensored, hack, _4k, iso)
                         print('[+]Watermark added to existing poster')
 
-                # 移动视频文件到输出目录
-                if re.search(r'[-_]CD\d+', movie_filename, re.IGNORECASE):
-                    multi_part = True
-                    part = re.findall(r'[-_]CD\d+', movie_filename, re.IGNORECASE)[0].upper()
-
-                leak_word = temp_leak_word
-                c_word = temp_c_word
-                hack_word = temp_hack_word
-
-                paste_file_to_folder(movie_path, str(output_dir), multi_part, number, part, leak_word, c_word, hack_word)
-
-                # 移动字幕文件
-                move_subtitles(movie_path, str(output_dir), multi_part, number, part, leak_word, c_word, hack_word)
+                paste_file_to_folder(movie_path, str(output_dir), multi_part, number, part, version_suffix)
+                move_subtitles(movie_path, str(output_dir), multi_part, number, part, version_suffix)
 
                 print('[+]Skipped scraping, NFO and poster already exist in output directory')
                 print("[*]======================================================")
                 return
             break
-    
-    json_data = get_data_from_json(number, oCC, specified_source, specified_url)  # 定义番号
 
-    # Return if blank dict returned (data not found)
+    json_data = get_data_from_json(number, oCC, specified_source, specified_url)
+
     if not json_data:
         moveFailedFolder(movie_path)
         return
 
     if json_data["number"] != number:
-        # fix issue #119
-        # the root cause is we normalize the search id
-        # print_files() will use the normalized id from website,
-        # but paste_file_to_folder() still use the input raw search id
-        # so the solution is: use the normalized search id
         number = json_data["number"]
     imagecut = json_data.get('imagecut')
     tag = json_data.get('tag')
-    # =======================================================================判断-C,-CD后缀
-    movie_filename = os.path.basename(movie_path)
 
     if re.search(r'[-_]CD\d+', movie_filename, re.IGNORECASE):
         multi_part = True
         part = re.findall(r'[-_]CD\d+', movie_filename, re.IGNORECASE)[0].upper()
-    if re.search(r'[-_]C(\.\w+$|-\w+)|\d+ch(\.\w+$|-\w+)', movie_filename,
-                 re.I) or '中文' in movie_filename or '字幕' in movie_filename:
-        cn_sub = True
-        c_word = '-C'  # 中文字幕影片后缀
 
-    # 判断是否无码
     unce = json_data.get('无码')
     uncensored = int(unce) if isinstance(unce, bool) else int(is_uncensored(number))
 
-    if '流出' in movie_filename or 'uncensored' in movie_filename.lower() or 'leak' in movie_filename.lower():
-        liuchu = '流出'
-        leak = True
-        leak_word = '-leak'  # 流出影片后缀
-    else:
-        leak = False
-
-    if 'hack'.upper() in str(movie_filename).upper() or '破解' in movie_filename:
-        hack = True
-        hack_word = "-hack"
-
-    # -U 后缀表示破解版
-    if re.search(r'[-_]U(?:\.|$)', movie_filename, re.IGNORECASE):
-        hack = True
-        hack_word = "-hack"
-
-    # 破解版不是无码，hack 优先级高于 uncensored
     if hack:
         uncensored = False
 
-    if '4k'.upper() in str(movie_filename).upper() or '4k' in movie_filename:
-        _4k = True
-
-    if '.iso'.upper() in str(movie_filename).upper() or '.iso' in movie_filename:
-        iso = True
-
-    if re.search(r'[-_]LC(?:\.|$)', movie_filename, re.IGNORECASE):
-        leak_word = '-leak'  # 无码流出影片后缀
-        leak = True
-        cn_sub = True
-        c_word = '-C'  # 中文字幕影片后缀
-
-    if re.search(r'[-_]L(?:\.|$)', movie_filename, re.IGNORECASE):
-        leak_word = '-leak'  # 无码流出影片后缀
-        leak = True
-
-    # 判断是否4k
     if '4K' in tag:
-        tag.remove('4K')  # 从tag中移除'4K'
+        tag.remove('4K')
 
-    # 判断是否为无码破解
     if '无码破解' in tag:
-        tag.remove('无码破解')  # 从tag中移除'无码破解'
+        tag.remove('无码破解')
 
-    # try:
-    #     props = get_video_properties(movie_path)  # 判断是否为4K视频
-    #     if props['width'] >= 4096 or props['height'] >= 2160:
-    #         _4k = True
-    # except:
-    #     pass
-
-    matchObj = re.match( r'(^([A-Za-z]{2,5})([0-9]{3,4})$)', json_data['number'])
+    matchObj = re.match(r'(^([A-Za-z]{2,5})([0-9]{3,4})$)', json_data['number'])
     if matchObj:
         json_data['number'] = f"{matchObj.group(2)}-{matchObj.group(3)}"
 
     number = json_data['number']
-    # 调试模式检测
     if conf.debug():
         debug_print(json_data)
 
-    # 创建文件夹
-    # path = create_folder(rootpath + '/' + conf.success_folder(),  json_data.get('location_rule'), json_data)
-
     cover = json_data.get('cover')
     ext = image_ext(cover)
-    if len(hack_word) > 0 or len(leak_word) > 0:
-        c_word = ""
-    fanart_path = f"fanart{ext}"
-    poster_path = f"poster{ext}"
-    thumb_path = f"thumb{ext}"
-    if config.getInstance().image_naming_with_number():
-        fanart_path = f"{number}{leak_word}{c_word}{hack_word}-fanart{ext}"
-        poster_path = f"{number}{leak_word}{c_word}{hack_word}-poster{ext}"
-        thumb_path = f"{number}{leak_word}{c_word}{hack_word}-thumb{ext}"
+    fanart_path = f"{number}{version_suffix}-fanart{ext}"
+    poster_path = f"{number}{version_suffix}-poster{ext}"
+    thumb_path = f"{number}{version_suffix}-thumb{ext}"
 
-    # main_mode
-    #  1: 刮削模式 / Scraping mode
-    #  2: 整理模式 / Organizing mode
-    #  3：不改变路径刮削
+    # main_mode  1: 刮削模式  2: 整理模式  3: 不改变路径刮削
     if conf.main_mode() == 1:
-        # 创建文件夹
         path = create_folder(json_data)
         if multi_part == 1:
-            number += part  # 这时number会被附加上CD1后缀
+            number += part
 
-        # 检查小封面, 如果image cut为3，则下载小封面
         if imagecut == 3:
             if 'headers' in json_data:
                 small_cover_check(path, poster_path, json_data.get('cover_small'), movie_path, json_data)
             else:
                 small_cover_check(path, poster_path, json_data.get('cover_small'), movie_path)
 
-        # creatFolder会返回番号路径
         if 'headers' in json_data:
             image_download(cover, fanart_path, thumb_path, path, movie_path, json_data)
         else:
@@ -1486,69 +1241,54 @@ def core_main(movie_path, number_th, oCC, specified_source=None, specified_url=N
 
         if not multi_part or part.lower() == '-cd1':
             try:
-                # 下载预告片
                 if conf.is_trailer() and json_data.get('trailer'):
-                    trailer_download(json_data.get('trailer'), leak_word, c_word, hack_word, number, path, movie_path)
+                    trailer_download(json_data.get('trailer'), version_suffix, number, path, movie_path)
 
-                # 下载剧照 data, path, filepath
                 if conf.is_extrafanart() and json_data.get('extrafanart'):
                     if 'headers' in json_data:
                         extrafanart_download(json_data.get('extrafanart'), path, number, movie_path, json_data)
                     else:
                         extrafanart_download(json_data.get('extrafanart'), path, number, movie_path)
 
-                # 下载演员头像 KODI .actors 目录位置
                 if conf.download_actor_photo_for_kodi():
                     actor_photo_download(json_data.get('actor_photo'), path, number)
             except:
                 pass
 
-        # 裁剪图
         cutImage(imagecut, path, thumb_path, poster_path, bool(conf.face_uncensored_only() and not uncensored))
 
-        # 兼容Jellyfin封面图文件名规则
         if multi_part and conf.jellyfin_multi_part_fanart():
-            linkImage(path, number_th, part, leak_word, c_word, hack_word, ext)
+            linkImage(path, number_th, part, version_suffix, ext)
 
-        # 移动电影
-        paste_file_to_folder(movie_path, path, multi_part, number, part, leak_word, c_word, hack_word)
+        paste_file_to_folder(movie_path, path, multi_part, number, part, version_suffix)
 
-        # Move subtitles
-        move_status = move_subtitles(movie_path, path, multi_part, number, part, leak_word, c_word, hack_word)
+        move_status = move_subtitles(movie_path, path, multi_part, number, part, version_suffix)
         if move_status:
             cn_sub = True
-        # 添加水印
         if conf.is_watermark():
             add_mark(os.path.join(path, poster_path), os.path.join(path, thumb_path), cn_sub, leak, uncensored,
                      hack, _4k, iso)
 
-        # 最后输出.nfo元数据文件，以完成.nfo文件创建作为任务成功标志
-        print_files(path, leak_word, c_word, json_data.get('naming_rule'), part, cn_sub, json_data, movie_path, tag,
-                    json_data.get('actor_list'), liuchu, uncensored, hack, hack_word
-                    , _4k, fanart_path, poster_path, thumb_path, iso)
+        print_files(path, version_suffix, json_data.get('naming_rule'), part, cn_sub, json_data, movie_path, tag,
+                    json_data.get('actor_list'), leak, uncensored, hack,
+                    _4k, fanart_path, poster_path, thumb_path, iso)
 
     elif conf.main_mode() == 2:
-        # 创建文件夹
         path = create_folder(json_data)
-        # 移动文件
-        paste_file_to_folder_mode2(movie_path, path, multi_part, number, part, leak_word, c_word, hack_word)
-
-        # Move subtitles
-        move_subtitles(movie_path, path, multi_part, number, part, leak_word, c_word, hack_word)
+        paste_file_to_folder_mode2(movie_path, path, multi_part, number, part, version_suffix)
+        move_subtitles(movie_path, path, multi_part, number, part, version_suffix)
 
     elif conf.main_mode() == 3:
         path = str(Path(movie_path).parent)
         if multi_part == 1:
-            number += part  # 这时number会被附加上CD1后缀
+            number += part
 
-        # 检查小封面, 如果image cut为3，则下载小封面
         if imagecut == 3:
             if 'headers' in json_data:
                 small_cover_check(path, poster_path, json_data.get('cover_small'), movie_path, json_data)
             else:
                 small_cover_check(path, poster_path, json_data.get('cover_small'), movie_path)
 
-        # creatFolder会返回番号路径
         if 'headers' in json_data:
             image_download(cover, fanart_path, thumb_path, path, movie_path, json_data)
         else:
@@ -1556,37 +1296,29 @@ def core_main(movie_path, number_th, oCC, specified_source=None, specified_url=N
 
         if not multi_part or part.lower() == '-cd1':
             try:
-                # 下载预告片
                 if conf.is_trailer() and json_data.get('trailer'):
-                    trailer_download(json_data.get('trailer'), leak_word, c_word, hack_word, number, path, movie_path)
+                    trailer_download(json_data.get('trailer'), version_suffix, number, path, movie_path)
 
-                # 下载剧照 data, path, filepath
                 if conf.is_extrafanart() and json_data.get('extrafanart'):
                     if 'headers' in json_data:
                         extrafanart_download(json_data.get('extrafanart'), path, number, movie_path, json_data)
                     else:
                         extrafanart_download(json_data.get('extrafanart'), path, number, movie_path)
 
-                # 下载演员头像 KODI .actors 目录位置
                 if conf.download_actor_photo_for_kodi():
                     actor_photo_download(json_data.get('actor_photo'), path, number)
             except:
                 pass
 
-        # 裁剪图
         cutImage(imagecut, path, fanart_path, poster_path, bool(conf.face_uncensored_only() and not uncensored))
 
-        # 添加水印
         if conf.is_watermark():
             add_mark(os.path.join(path, poster_path), os.path.join(path, fanart_path), cn_sub, leak, uncensored, hack,
                      _4k, iso)
 
-        # 兼容Jellyfin封面图文件名规则
         if multi_part and conf.jellyfin_multi_part_fanart():
-            linkImage(path, number_th, part, leak_word, c_word, hack_word, ext)
+            linkImage(path, number_th, part, version_suffix, ext)
 
-        # 最后输出.nfo元数据文件，以完成.nfo文件创建作为任务成功标志
-        print_files(path, leak_word, c_word, json_data.get('naming_rule'), part, cn_sub, json_data, movie_path,
-                    tag, json_data.get('actor_list'), liuchu, uncensored, hack, hack_word, _4k, fanart_path,
-                    poster_path,
-                    thumb_path, iso)
+        print_files(path, version_suffix, json_data.get('naming_rule'), part, cn_sub, json_data, movie_path,
+                    tag, json_data.get('actor_list'), leak, uncensored, hack, _4k, fanart_path,
+                    poster_path, thumb_path, iso)

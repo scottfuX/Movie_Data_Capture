@@ -576,6 +576,8 @@ def main(args: tuple) -> Path:
         # pip uninstall opencc && pip install opencc-python-reimplemented
         oCC = None if ccm == 0 else OpenCC('t2s' if ccm == 1 else 's2t')
 
+    thread_list = []
+
     if not search == '':
         search_list = search.split(",")
         for i in search_list:
@@ -612,7 +614,6 @@ def main(args: tuple) -> Path:
             count_all = str(min(len(movie_list), stop_count))
 
         thread_stop = conf.multi_threading()
-        thread_list = []
         for movie_path in movie_list:  # 遍历电影列表 交给core处理
             
             count = count + 1

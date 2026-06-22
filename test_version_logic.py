@@ -21,7 +21,7 @@ class VersionType(IntEnum):
     ORIGINAL = 0      # 原版
     CHINESE = 1       # -C 中文字幕
     UNCENSORED = 1    # -U 无码破解
-    LEAK = 2          # -L 流出
+    LEAK = 2          # -leak 流出
     UC_COMBO = 2      # -UC 无码破解+中文
 
 
@@ -32,10 +32,6 @@ class VersionInfo:
     cn_sub: bool
     leak: bool
     hack: bool
-    c_word: str
-    leak_word: str
-    hack_word: str
-    original_suffix: str  # 原始文件名中的版本后缀
 
     @property
     def priority(self) -> int:
@@ -43,8 +39,18 @@ class VersionInfo:
         return int(self.version_type)
 
     def get_version_suffix(self) -> str:
-        """获取版本标识后缀用于文件命名"""
-        return self.original_suffix
+        """获取统一的版本标识后缀用于文件命名"""
+        if self.hack and self.cn_sub:
+            return '-UC'
+        elif self.hack:
+            return '-U'
+        elif self.leak and self.cn_sub:
+            return '-leak-C'
+        elif self.leak:
+            return '-leak'
+        elif self.cn_sub:
+            return '-C'
+        return ''
 
 
 def parse_version_from_path(movie_path: str, number: str) -> VersionInfo:
@@ -52,53 +58,38 @@ def parse_version_from_path(movie_path: str, number: str) -> VersionInfo:
     cn_sub = False
     leak = False
     hack = False
-    c_word = ''
-    leak_word = ''
-    hack_word = ''
 
-    # 检测中文字幕标记
+    filename = os.path.basename(movie_path)
+    filename_lower = filename.lower()
+
     if re.search(r'[-_]C(\.\w+$|-\w+)|\d+ch(\.\w+$|-\w+)', movie_path, re.I) \
        or '中文' in movie_path or '字幕' in movie_path \
        or ".chs" in movie_path or '.cht' in movie_path:
         cn_sub = True
-        c_word = '-C'
 
-    # 检测流出标记
     if '流出' in movie_path or 'uncensored' in movie_path.lower() \
        or 'leak' in movie_path.lower():
         leak = True
-        leak_word = '-leak'
 
-    # 检测破解标记
     if 'hack' in str(movie_path).lower() or '破解' in movie_path:
         hack = True
-        hack_word = '-hack'
 
-    # 特殊组合标记 -UC
-    if '-uc' in str(movie_path).lower():
+    if re.search(r'[-_]uc(?=\.\w+$|[-_]|$)', filename_lower):
         hack = True
-        hack_word = '-hack'
         cn_sub = True
-        c_word = '-C'
 
-    # -U 单独标记
-    if '-u' in str(movie_path).lower() and '-uc' not in str(movie_path).lower():
+    if re.search(r'[-_]u(?=\.\w+$|[-_]|$)', filename_lower) and \
+       not re.search(r'[-_]uc', filename_lower):
         hack = True
-        hack_word = '-hack'
 
-    # -LC 组合标记
-    if '-lc' in str(movie_path).lower():
+    if re.search(r'[-_]lc(?=\.\w+$|[-_]|$)', filename_lower):
         leak = True
-        leak_word = '-leak'
         cn_sub = True
-        c_word = '-C'
 
-    # -L 单独标记
-    if '-l' in str(movie_path).lower() and '-lc' not in str(movie_path).lower():
+    if re.search(r'[-_]l(?=\.\w+$|[-_]|$)', filename_lower) and \
+       not re.search(r'[-_]lc', filename_lower):
         leak = True
-        leak_word = '-leak'
 
-    # 确定版本类型
     if hack and cn_sub:
         version_type = VersionType.UC_COMBO
     elif leak:
@@ -110,70 +101,32 @@ def parse_version_from_path(movie_path: str, number: str) -> VersionInfo:
     else:
         version_type = VersionType.ORIGINAL
 
-    # 提取原始文件名中的版本后缀
-    original_suffix = ''
-    filename = os.path.basename(movie_path)
-    filename_lower = filename.lower()
-
-    # 检测 -UC 或 -hack-C (无码破解+中文)
-    if re.search(r'[-_]uc(?=\.\w+$|[-_]|$)', filename_lower) or \
-       re.search(r'[-_]hack[-_]c(?=\.\w+$|[-_]|$)', filename_lower) or \
-       (re.search(r'[-_]hack', filename_lower) and cn_sub):
-        original_suffix = '-UC'
-    # 检测 -LC
-    elif re.search(r'[-_]lc(?=\.\w+$|[-_]|$)', filename_lower):
-        original_suffix = '-LC'
-    # 检测 -U 或 -hack (排除 -UC, -hack-C)
-    elif (re.search(r'[-_]u(?=\.\w+$|[-_]|$)', filename_lower) and not re.search(r'[-_]uc', filename_lower)) or \
-         (re.search(r'[-_]hack(?=\.\w+$|[-_]|$)', filename_lower) and not cn_sub):
-        original_suffix = '-U'
-    # 检测 -L 或 -leak (排除 -LC)
-    elif (re.search(r'[-_]l(?=\.\w+$|[-_]|$)', filename_lower) and not re.search(r'[-_]lc', filename_lower)) or \
-         re.search(r'[-_]leak(?=\.\w+$|[-_]|$)', filename_lower):
-        original_suffix = '-L'
-    # 检测 -C
-    elif re.search(r'[-_]c(?=\.\w+$|[-_]|$)', filename_lower) or \
-         re.search(r'\d+ch(?=\.\w+$|[-_]|$)', filename_lower) or \
-         '中文' in filename or '字幕' in filename:
-        original_suffix = '-C'
-
     return VersionInfo(
         version_type=version_type,
         cn_sub=cn_sub,
         leak=leak,
         hack=hack,
-        c_word=c_word,
-        leak_word=leak_word,
-        hack_word=hack_word,
-        original_suffix=original_suffix
     )
 
 
 def compare_versions(current_path: str, existing_path: str, number: str) -> str:
-    """
-    比较两个版本的优先级
-
-    Returns:
-        'current_wins': 当前文件应该覆盖已存在文件
-        'existing_wins': 已存在文件保留，跳过当前文件
-        'coexist': 两个文件共存
-    """
+    """比较两个版本的优先级"""
     current_vi = parse_version_from_path(current_path, number)
     existing_vi = parse_version_from_path(existing_path, number)
 
     current_suffix = current_vi.get_version_suffix()
     existing_suffix = existing_vi.get_version_suffix()
 
-    # 相同版本 - 比较创建时间
     if current_suffix == existing_suffix:
-        current_time = os.path.getctime(current_path)
-        existing_time = os.path.getctime(existing_path)
+        st = os.stat(current_path)
+        current_time = st.st_birthtime if hasattr(st, 'st_birthtime') else st.st_mtime
+        st2 = os.stat(existing_path)
+        existing_time = st2.st_birthtime if hasattr(st2, 'st_birthtime') else st2.st_mtime
         if current_time > existing_time:
             return 'current_wins'
         else:
             return 'existing_wins'
 
-    # 不同版本 - 比较优先级
     current_priority = current_vi.priority
     existing_priority = existing_vi.priority
 
@@ -199,9 +152,9 @@ def test_version_parsing():
         ('SSIS-001-C.mp4', 'SSIS-001', '-C', 1),
         ('SSIS-001-U.mp4', 'SSIS-001', '-U', 1),
         ('SSIS-001-UC.mp4', 'SSIS-001', '-UC', 2),
-        ('SSIS-001-L.mp4', 'SSIS-001', '-L', 2),
-        ('SSIS-001-LC.mp4', 'SSIS-001', '-LC', 2),
-        ('SSIS-001-leak.mp4', 'SSIS-001', '-L', 2),
+        ('SSIS-001-L.mp4', 'SSIS-001', '-leak', 2),
+        ('SSIS-001-LC.mp4', 'SSIS-001', '-leak-C', 2),
+        ('SSIS-001-leak.mp4', 'SSIS-001', '-leak', 2),
         ('SSIS-001-hack.mp4', 'SSIS-001', '-U', 1),          # -hack 应该识别为 -U
         ('SSIS-001-hack-C.mp4', 'SSIS-001', '-UC', 2),      # -hack-C 应该识别为 -UC
         ('[字幕组]SSIS-001.mp4', 'SSIS-001', '-C', 1),
@@ -315,8 +268,10 @@ def test_suffix_values():
         ('SSIS-001-C.mp4', '-C', '中文字幕'),
         ('SSIS-001-U.mp4', '-U', '无码破解'),
         ('SSIS-001-UC.mp4', '-UC', '无码破解+中文'),
-        ('SSIS-001-L.mp4', '-L', '流出'),
-        ('SSIS-001-LC.mp4', '-LC', '流出+中文'),
+        ('SSIS-001-L.mp4', '-leak', '流出'),
+        ('SSIS-001-LC.mp4', '-leak-C', '流出+中文'),
+        ('SSIS-001-leak.mp4', '-leak', '流出(leak标记)'),
+        ('SSIS-001-hack.mp4', '-U', '破解(hack->U)'),
     ]
 
     all_passed = True
@@ -325,7 +280,7 @@ def test_suffix_values():
         actual_suffix = vi.get_version_suffix()
         passed = actual_suffix == expected_suffix
         status = "✓" if passed else "✗"
-        print(f"  {status} {desc:15} suffix=\"{actual_suffix}\" (expected=\"{expected_suffix}\")")
+        print(f"  {status} {desc:20} suffix=\"{actual_suffix}\" (expected=\"{expected_suffix}\")")
 
         if not passed:
             all_passed = False
@@ -342,7 +297,7 @@ def test_coexistence_logic():
 
     coexist_groups = [
         [('SSIS-001-C.mp4', 'SSIS-001-U.mp4'), '优先级1: -C 和 -U'],
-        [('SSIS-001-UC.mp4', 'SSIS-001-L.mp4'), '优先级2: -UC 和 -L'],
+        [('SSIS-001-UC.mp4', 'SSIS-001-leak.mp4'), '优先级2: -UC 和 -leak'],
     ]
 
     all_passed = True
@@ -367,6 +322,134 @@ def test_coexistence_logic():
     return all_passed
 
 
+def test_image_naming():
+    """测试图片命名：始终使用 {number}{version_suffix}-{type}{ext} 格式"""
+    print("=" * 60)
+    print("测试 6: 图片命名一致性")
+    print("=" * 60)
+
+    test_cases = [
+        # (movie_path, number, cover_url, expected_fanart, expected_poster, expected_thumb)
+        ('SSIS-001.mp4', 'SSIS-001', 'http://example.com/cover.jpg',
+         'SSIS-001-fanart.jpg', 'SSIS-001-poster.jpg', 'SSIS-001-thumb.jpg'),
+        ('SSIS-001-C.mp4', 'SSIS-001', 'http://example.com/cover.jpg',
+         'SSIS-001-C-fanart.jpg', 'SSIS-001-C-poster.jpg', 'SSIS-001-C-thumb.jpg'),
+        ('SSIS-001-UC.mp4', 'SSIS-001', 'http://example.com/cover.jpg',
+         'SSIS-001-UC-fanart.jpg', 'SSIS-001-UC-poster.jpg', 'SSIS-001-UC-thumb.jpg'),
+        ('SSIS-001-U.mp4', 'SSIS-001', 'http://example.com/cover.jpg',
+         'SSIS-001-U-fanart.jpg', 'SSIS-001-U-poster.jpg', 'SSIS-001-U-thumb.jpg'),
+        ('SSIS-001-leak.mp4', 'SSIS-001', 'http://example.com/cover.jpg',
+         'SSIS-001-leak-fanart.jpg', 'SSIS-001-leak-poster.jpg', 'SSIS-001-leak-thumb.jpg'),
+        ('SSIS-001-leak-C.mp4', 'SSIS-001', 'http://example.com/cover.png',
+         'SSIS-001-leak-C-fanart.png', 'SSIS-001-leak-C-poster.png', 'SSIS-001-leak-C-thumb.png'),
+        ('SSIS-001-hack.mp4', 'SSIS-001', 'http://example.com/cover.jpg',
+         'SSIS-001-U-fanart.jpg', 'SSIS-001-U-poster.jpg', 'SSIS-001-U-thumb.jpg'),
+    ]
+
+    def image_ext(url):
+        ext = os.path.splitext(url)[-1]
+        if ext in {'.jpg', '.jpge', '.bmp', '.png', '.gif'}:
+            return ext
+        return ".jpg"
+
+    all_passed = True
+    for movie_path, number, cover_url, exp_fanart, exp_poster, exp_thumb in test_cases:
+        vi = parse_version_from_path(movie_path, number)
+        version_suffix = vi.get_version_suffix()
+        ext = image_ext(cover_url)
+
+        fanart_path = f"{number}{version_suffix}-fanart{ext}"
+        poster_path = f"{number}{version_suffix}-poster{ext}"
+        thumb_path = f"{number}{version_suffix}-thumb{ext}"
+
+        nfo_name = f"{number}{version_suffix}.nfo"
+
+        p1 = fanart_path == exp_fanart
+        p2 = poster_path == exp_poster
+        p3 = thumb_path == exp_thumb
+        passed = p1 and p2 and p3
+        status = "✓" if passed else "✗"
+
+        print(f"  {status} {movie_path:25} -> fanart={fanart_path}, poster={poster_path}, nfo={nfo_name}")
+        if not passed:
+            all_passed = False
+            if not p1:
+                print(f"        fanart mismatch: got={fanart_path} expected={exp_fanart}")
+            if not p2:
+                print(f"        poster mismatch: got={poster_path} expected={exp_poster}")
+            if not p3:
+                print(f"        thumb  mismatch: got={thumb_path} expected={exp_thumb}")
+
+    print()
+    return all_passed
+
+
+def test_nfo_image_refs_consistency():
+    """测试 NFO 中的图片引用与实际图片文件名一致"""
+    print("=" * 60)
+    print("测试 7: NFO 图片引用一致性")
+    print("=" * 60)
+
+    temp_dir = tempfile.mkdtemp()
+    try:
+        test_cases = [
+            ('ABP-171-UC.mp4', 'ABP-171'),
+            ('SSIS-001-C.mp4', 'SSIS-001'),
+            ('PRED-400.mp4', 'PRED-400'),
+            ('ABP-100-leak.mp4', 'ABP-100'),
+        ]
+
+        all_passed = True
+        for movie_file, number in test_cases:
+            vi = parse_version_from_path(movie_file, number)
+            vs = vi.get_version_suffix()
+            ext = '.jpg'
+
+            fanart_name = f"{number}{vs}-fanart{ext}"
+            poster_name = f"{number}{vs}-poster{ext}"
+            thumb_name = f"{number}{vs}-thumb{ext}"
+            nfo_name = f"{number}{vs}.nfo"
+            video_name = f"{number}{vs}.mp4"
+
+            nfo_content = f"""<?xml version="1.0" encoding="UTF-8" ?>
+<movie>
+  <poster>{poster_name}</poster>
+  <thumb>{thumb_name}</thumb>
+  <fanart>{fanart_name}</fanart>
+</movie>"""
+            nfo_path = os.path.join(temp_dir, nfo_name)
+            with open(nfo_path, 'w') as f:
+                f.write(nfo_content)
+
+            with open(nfo_path, 'r') as f:
+                content = f.read()
+
+            poster_ref_ok = f"<poster>{poster_name}</poster>" in content
+            thumb_ref_ok = f"<thumb>{thumb_name}</thumb>" in content
+            fanart_ref_ok = f"<fanart>{fanart_name}</fanart>" in content
+
+            all_refs_match = all([
+                poster_ref_ok,
+                thumb_ref_ok,
+                fanart_ref_ok,
+                poster_name.startswith(number),
+                fanart_name.startswith(number),
+                thumb_name.startswith(number),
+            ])
+
+            passed = all_refs_match
+            status = "✓" if passed else "✗"
+            print(f"  {status} {video_name:20} -> nfo={nfo_name}, poster={poster_name}, fanart={fanart_name}")
+
+            if not passed:
+                all_passed = False
+
+        print()
+        return all_passed
+    finally:
+        shutil.rmtree(temp_dir)
+
+
 def main():
     print("\n" + "=" * 60)
     print("       版本处理逻辑测试")
@@ -379,6 +462,8 @@ def main():
     results.append(("优先级值", test_priority_values()))
     results.append(("后缀值", test_suffix_values()))
     results.append(("共存逻辑", test_coexistence_logic()))
+    results.append(("图片命名一致性", test_image_naming()))
+    results.append(("NFO图片引用一致性", test_nfo_image_refs_consistency()))
 
     print("=" * 60)
     print("测试结果汇总")
