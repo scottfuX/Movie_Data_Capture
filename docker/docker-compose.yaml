@@ -1,13 +1,11 @@
-version: "2.2"
+version: "3"
 services:
-  jav:
-    user: "${JAVUID}:${JAVGID}"
-    image: jav:local
-    build: .
+  capture:
+    image: registry.cn-qingdao.aliyuncs.com/wod/movie_data_capture:v6.7.2
+    restart: "no"
+    environment:
+      - PUID=1000
+      - PGID=1000
     volumes:
-      - ./config.ini:/jav/config.ini
-      - ${JAV_PATH}:/jav/data
-    command:
-      - python
-      - /jav/AV_Data_Capture.py
-      - -a
+      - /volume1/capture/config:/config
+      - /volume1/capture/data:/data
