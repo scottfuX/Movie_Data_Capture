@@ -99,8 +99,42 @@ def cutImage(imagecut, path, thumb_path, poster_path, skip_facerec=False):
         print(f"[+]Image Copyed!     {Path(fullpath_poster).name}")
 
 
-def face_center(filename, model):
+_DISABLED_FACE_MODELS = set()
+
+
+def _face_center_worker(filename, model, conn):
     try:
+        mod = importlib.import_module('.' + model, 'image_processing')
+        res = mod.face_center(filename, model)
+        conn.send(res)
+    except Exception:
+        conn.send((0, 0))
+    finally:
+        conn.close()
+
+
+def face_center(filename, model):
+    if model in _DISABLED_FACE_MODELS:
+        return (0, 0)
+    try:
+        if os.name == 'posix':
+            import multiprocessing
+            ctx = multiprocessing.get_context('fork')
+            parent_conn, child_conn = ctx.Pipe(duplex=False)
+            proc = ctx.Process(target=_face_center_worker, args=(filename, model, child_conn))
+            proc.start()
+            child_conn.close()
+            res = parent_conn.recv() if parent_conn.poll(15) else (0, 0)
+            parent_conn.close()
+            proc.join(timeout=2)
+            if proc.is_alive():
+                proc.terminate()
+                proc.join(timeout=1)
+            if proc.exitcode is not None and proc.exitcode < 0:
+                print(f"[!]Face model '{model}' crashed with signal {-proc.exitcode} (CPU instruction/ABI incompatibility), disabling '{model}' and using default crop.")
+                _DISABLED_FACE_MODELS.add(model)
+                return (0, 0)
+            return res
         mod = importlib.import_module('.' + model, 'image_processing')
         return mod.face_center(filename, model)
     except Exception as e:

@@ -79,15 +79,23 @@ class Javbus(Parser):
                 newnumber = "BKD-003_2009-09-05"
 
             mirrors = self.rules.get("mirrors") or ["https://www.javbus.com", "https://www.buscdn.art"]
+            stripped_number = re.sub(r'^\d{3}(?=[a-zA-Z]{2,6}-\d+)', '', newnumber)
+            candidate_numbers = [newnumber]
+            if stripped_number.upper() != newnumber.upper():
+                candidate_numbers.append(stripped_number)
+
             self.htmlcode = 404
-            for base_url in mirrors:
-                try:
-                    self.detailurl = f"{base_url.rstrip('/')}/{newnumber}"
-                    self.htmlcode = self.getHtml(self.detailurl)
-                    if self.htmlcode != 404 and self.htmlcode:
-                        break
-                except Exception:
-                    continue
+            for cand_num in candidate_numbers:
+                for base_url in mirrors:
+                    try:
+                        self.detailurl = f"{base_url.rstrip('/')}/{cand_num}"
+                        self.htmlcode = self.getHtml(self.detailurl)
+                        if self.htmlcode != 404 and self.htmlcode:
+                            break
+                    except Exception:
+                        continue
+                if self.htmlcode != 404 and self.htmlcode:
+                    break
 
             if self.htmlcode == 404 or not self.htmlcode:
                 return self.searchUncensored(number)
@@ -133,6 +141,9 @@ class Javbus(Parser):
         num = raw.split(',')[0].strip()
         if not num:
             raise ValueError("Empty number on JavBus page")
+        stripped_number = re.sub(r'^\d{3}(?=[a-zA-Z]{2,6}-\d+)', '', self.number)
+        if num.upper() == stripped_number.upper() and num.upper() != self.number.upper():
+            return self.number
         return num
 
     def getTitle(self, htmltree):

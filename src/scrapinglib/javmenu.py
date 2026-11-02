@@ -15,8 +15,8 @@ class Javmenu(Parser):
 
     expr_number = '//span[contains(text(),"番號") or contains(text(),"番号")]/../a/text()'
     expr_number2 = '//span[contains(text(),"番號") or contains(text(),"番号")]/../span[2]/text()'
-    expr_runtime = '//span[contains(text(),"時長;") or contains(text(),"时长")]/../span[2]/text()'
-    expr_release = '//span[contains(text(),"日期")]/../span[2]/text()'
+    expr_runtime = '//span[contains(text(),"時長") or contains(text(),"时长")]/../span[2]/text()'
+    expr_release = '//span[contains(text(),"日期") or contains(text(),"发佈于") or contains(text(),"发布于") or contains(text(),"發佈於")]/../span[2]/text()'
     expr_studio = '//span[contains(text(),"製作")]/../span[2]/a/text()'
 
     expr_actor = '//a[contains(@class,"actress")]/text()'
@@ -53,7 +53,7 @@ class Javmenu(Parser):
     def getTitle(self, htmltree):
         browser_title = super().getTitle(htmltree)
         # 删除番号
-        number = re.findall("\d+",self.number)[1]
+        number = re.findall(r"\d+", self.number)[1]
         title = browser_title.split(number,1)[-1]
         title = title.replace(' | JAV目錄大全 | 每日更新',"")
         title = title.replace(' | JAV目录大全 | 每日更新',"").strip()

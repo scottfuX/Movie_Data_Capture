@@ -143,7 +143,7 @@ def build_dmm_candidate_cids(number: str, hint_cid: str = "") -> List[str]:
 
     if not number:
         return cids
-    m = re.match(r"^([a-zA-Z][a-zA-Z0-9]{1,6})-(\d{2,5})$", number.strip())
+    m = re.match(r"^(?:\d{3})?([a-zA-Z][a-zA-Z0-9]{1,6})-(\d{2,5})$", number.strip())
     if not m:
         return cids
 
@@ -224,7 +224,7 @@ def build_dmm_cover_urls(
     if not number:
         return urls
 
-    m = re.match(r"^([a-zA-Z][a-zA-Z0-9]{1,6})-(\d{2,5})$", number.strip())
+    m = re.match(r"^(?:\d{3})?([a-zA-Z][a-zA-Z0-9]{1,6})-(\d{2,5})$", number.strip())
     if not m:
         return urls
 

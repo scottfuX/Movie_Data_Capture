@@ -1,6 +1,6 @@
 requests
 dlib-bin
-numpy
+numpy<2.0.0
 lxml
 beautifulsoup4
 pillow==9.5.0

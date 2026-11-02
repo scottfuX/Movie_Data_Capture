@@ -85,16 +85,24 @@ class Javdb(Parser):
         return any(kw in resp.text for kw in keywords)
 
     def _fetch_with_cf_fallback(self, url: str):
-        resp = self.session.get(url)
-        if self._is_challenge_response(resp):
-            from scrapinglib.cf_bypass import auto_bypass_cloudflare
-            base_url = f"https://{self.dbsite}.com/"
-            if auto_bypass_cloudflare(base_url, "javdb.json"):
-                from adc_function import load_cookies
-                new_cookies, _ = load_cookies("javdb.json")
+        try:
+            resp = self.session.get(url)
+        except Exception:
+            resp = None
+        if resp is None or self._is_challenge_response(resp):
+            from scrapinglib.cf_bypass import fetch_via_browser
+            ok, final_url, html_text, new_cookies = fetch_via_browser(url, "javdb.json")
+            if ok and html_text:
                 if new_cookies:
                     self.session.cookies.update(new_cookies)
-                    resp = self.session.get(url)
+
+                class _BrowserResponse:
+                    def __init__(self, u: str, t: str):
+                        self.status_code = 200
+                        self.url = u
+                        self.text = t
+
+                return _BrowserResponse(final_url, html_text)
         return resp
 
     def search(self, number: str):
@@ -154,12 +162,20 @@ class Javdb(Parser):
                         print(f'[!] {self.number}: No IDs found in search results')
                         raise ValueError("No IDs found in javdb search results")
 
-                    if ids[0].upper() != number.upper():
+                    stripped_number = re.sub(r'^\d{3}(?=[a-zA-Z]{2,6}-\d+)', '', number)
+                    upper_ids = [i.upper() for i in ids]
+                    if number.upper() in upper_ids:
+                        self.queryid = upper_ids.index(number.upper())
+                        correct_url = urls[self.queryid]
+                    elif stripped_number.upper() != number.upper() and stripped_number.upper() in upper_ids:
+                        self.queryid = upper_ids.index(stripped_number.upper())
+                        correct_url = urls[self.queryid]
+                    elif ids[0].upper() != number.upper():
                         print(f'[!] {self.number}: Expected {number}, but found {ids[0]}')
                         raise ValueError(f"number not found in javdb (found: {ids[0]})")
-
-                    self.queryid = 0
-                    correct_url = urls[0]
+                    else:
+                        self.queryid = 0
+                        correct_url = urls[0]
                 except IndexError as e:
                     print(f'[!] {self.number}: Index error - urls:{len(urls)}, ids:{len(ids)}')
                     raise IndexError(f"Index mismatch: urls({len(urls)}), ids({len(ids)})") from e
@@ -168,8 +184,8 @@ class Javdb(Parser):
 
         except Exception as e:
             print(f'[!] {self.number}: Error in queryNumberUrl: {str(e)}')
-            print(f'[!] Response status: {resp.status_code if "resp" in locals() else "N/A"}')
-            print(f'[!] Response URL: {resp.url if "resp" in locals() else "N/A"}')
+            print(f'[!] Response status: {resp.status_code if "resp" in locals() and resp is not None else "N/A"}')
+            print(f'[!] Response URL: {resp.url if "resp" in locals() and resp is not None else "N/A"}')
             raise
 
     def getNum(self, htmltree):
@@ -179,10 +195,13 @@ class Javdb(Parser):
         part1 = eval_first_xpath(htmltree, self._field_xpaths("number_suffix", [self.expr_number]))
         part2 = eval_first_xpath(htmltree, self._field_xpaths("number_prefix", [self.expr_number2]))
         dp_number = part2 + part1
+        stripped_number = re.sub(r'^\d{3}(?=[a-zA-Z]{2,6}-\d+)', '', self.number)
         # NOTE 检测匹配与更新 self.number
-        if dp_number.upper() != self.number.upper():
+        if dp_number.upper() != self.number.upper() and dp_number.upper() != stripped_number.upper():
             raise Exception(f'[!] {self.number}: find [{dp_number}] in javdb, not match')
-        self.number = dp_number
+        self.dp_number = dp_number
+        if dp_number.upper() == self.number.upper():
+            self.number = dp_number
         return self.number
 
     def getTitle(self, htmltree):
@@ -190,6 +209,9 @@ class Javdb(Parser):
             return eval_first_xpath(htmltree, self._field_xpaths("title_noauth", [self.expr_title_no]), self.queryid)
         browser_title = eval_first_xpath(htmltree, self._field_xpaths("title", [self.expr_title]))
         title = browser_title[:browser_title.find(' | JavDB')].strip()
+        dp_num = getattr(self, "dp_number", "")
+        if dp_num:
+            title = title.replace(dp_num, '').strip()
         return title.replace(self.number, '').strip()
 
     def getCover(self, htmltree):

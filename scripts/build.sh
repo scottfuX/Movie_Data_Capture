@@ -40,7 +40,6 @@ pyinstaller \
   -D src/main.py \
   -n Movie_Data_Capture \
   -p src \
-  --strip \
   --python-option u \
   --noconfirm \
   --hidden-import "image_processing.hog" \
