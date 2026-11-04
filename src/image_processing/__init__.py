@@ -65,6 +65,10 @@ def cutImage(imagecut, path, thumb_path, poster_path, skip_facerec=False):
     fullpath_fanart = os.path.join(path, thumb_path)
     fullpath_poster = os.path.join(path, poster_path)
     aspect_ratio = conf.face_aspect_ratio()
+    if imagecut == 3:
+        if not file_not_exist_or_empty(fullpath_poster):
+            return
+        imagecut = 1
     if conf.face_aways_imagecut():
         imagecut = 1
     elif conf.download_only_missing_images() and not file_not_exist_or_empty(fullpath_poster):

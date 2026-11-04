@@ -5,7 +5,34 @@
     "digital": "https://awsimgsrc.dmm.co.jp/pics_dig/digital/video/{cid}/{cid}pl.jpg",
     "digital_legacy": "https://pics.dmm.co.jp/digital/video/{cid}/{cid}pl.jpg",
     "mono": "https://pics.dmm.co.jp/mono/movie/adult/{cid}/{cid}pl.jpg",
-    "amateur": "https://awsimgsrc.dmm.co.jp/pics_dig/digital/amateur/{cid}/{cid}jp.jpg"
+    "amateur": "https://awsimgsrc.dmm.co.jp/pics_dig/digital/amateur/{cid}/{cid}jp.jpg",
+    "digital_ps": "https://awsimgsrc.dmm.co.jp/pics_dig/digital/video/{cid}/{cid}ps.jpg",
+    "digital_legacy_ps": "https://pics.dmm.co.jp/digital/video/{cid}/{cid}ps.jpg",
+    "mono_ps": "https://pics.dmm.co.jp/mono/movie/adult/{cid}/{cid}ps.jpg",
+    "digital_jp1": "https://awsimgsrc.dmm.co.jp/pics_dig/digital/video/{cid}/{cid}jp-1.jpg",
+    "digital_legacy_jp1": "https://pics.dmm.co.jp/digital/video/{cid}/{cid}jp-1.jpg"
+  },
+  "separate_poster_rules": {
+    "ps_with_jp1_fallback_prefixes": [
+      "START",
+      "STARS",
+      "SDJS",
+      "SDDE",
+      "SDNM",
+      "SDMM",
+      "SDAB",
+      "SDAM",
+      "SDMF",
+      "SDTH",
+      "MSFH",
+      "KMHRS",
+      "KIRE"
+    ],
+    "ps_only_prefixes": [
+      "SDHS"
+    ],
+    "min_ps_content_length": 45000,
+    "min_jp1_content_length": 20000
   },
   "groups": {
     "direct_digital": {

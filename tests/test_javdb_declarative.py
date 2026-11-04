@@ -18,6 +18,7 @@ from scrapinglib.rule_loader import (
     build_dmm_cover_urls,
     extract_dmm_cid_from_url,
     resolve_dmm_hd_cover,
+    resolve_separate_poster,
 )
 
 
@@ -326,6 +327,88 @@ class TestDeclarativeScrapers(unittest.TestCase):
             fallback_cover="https://c0.jdbstatic.com/covers/fn/FNS152.jpg",
         )
         self.assertEqual(cover, "https://c0.jdbstatic.com/covers/fn/FNS152.jpg")
+
+    def test_sod_separate_poster_resolution(self):
+        # 1. Category 1 (START-315): 2K ps.jpg (>= 45 KB) is preferred
+        mock_session = MagicMock()
+
+        def side_effect_start(url, **kwargs):
+            resp = MagicMock()
+            resp.status_code = 200
+            resp.url = url
+            if url.endswith("ps.jpg"):
+                resp.headers = {"content-length": "526067"}
+            elif url.endswith("pl.jpg"):
+                resp.headers = {"content-length": "906000"}
+            else:
+                resp.status_code = 404
+                resp.headers = {"content-length": "0"}
+            return resp
+
+        mock_session.head.side_effect = side_effect_start
+        poster_start = resolve_separate_poster(
+            "START-315",
+            mock_session,
+            cover="https://awsimgsrc.dmm.co.jp/pics_dig/digital/video/1start00315/1start00315pl.jpg",
+            extrafanart=["https://www.javbus.com/pics/sample/b13a_1.jpg"],
+        )
+        self.assertEqual(
+            poster_start,
+            "https://awsimgsrc.dmm.co.jp/pics_dig/digital/video/1start00315/1start00315ps.jpg",
+        )
+
+        # 2. Category 1 older release (SDTH-027): ps.jpg is 147x200 thumbnail (< 45 KB) -> falls back to jp-1.jpg
+        def side_effect_sdth(url, **kwargs):
+            resp = MagicMock()
+            resp.status_code = 200
+            resp.url = url
+            if url.endswith("ps.jpg"):
+                resp.headers = {"content-length": "15900"}  # 147x200 thumbnail
+            elif url.endswith("jp-1.jpg"):
+                resp.headers = {"content-length": "133500"}  # 562x800 vertical poster
+            else:
+                resp.status_code = 404
+                resp.headers = {"content-length": "0"}
+            return resp
+
+        mock_session.head.side_effect = side_effect_sdth
+        poster_sdth = resolve_separate_poster("SDTH-027", mock_session)
+        self.assertEqual(
+            poster_sdth,
+            "https://awsimgsrc.dmm.co.jp/pics_dig/digital/video/1sdth00027/1sdth00027jp-1.jpg",
+        )
+
+        # 3. Category 3 (SDHS-062): ps_only series must NOT fall back to jp-1.jpg or extrafanart[0]
+        def side_effect_sdhs_small(url, **kwargs):
+            resp = MagicMock()
+            resp.status_code = 200
+            resp.url = url
+            if url.endswith("ps.jpg"):
+                resp.headers = {"content-length": "14000"}
+            elif url.endswith("jp-1.jpg"):
+                resp.headers = {"content-length": "112000"}
+            return resp
+
+        mock_session.head.side_effect = side_effect_sdhs_small
+        self.assertEqual(
+            resolve_separate_poster(
+                "SDHS-062",
+                mock_session,
+                extrafanart=["https://pics.dmm.co.jp/digital/video/1sdhs00062/1sdhs00062jp-1.jpg"],
+            ),
+            "",
+        )
+
+        # 4. Category 4 excluded series (STAR, SDMT, FSET, SDMU): must return "" and keep standard right-crop
+        for excluded_num in ["STAR-994", "SDMT-370", "FSET-889", "SDMU-963"]:
+            self.assertEqual(
+                resolve_separate_poster(
+                    excluded_num,
+                    mock_session,
+                    extrafanart=["https://example.com/sample1.jpg"],
+                ),
+                "",
+            )
 
 
 if __name__ == "__main__":

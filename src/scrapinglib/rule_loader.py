@@ -267,6 +267,32 @@ def build_dmm_cover_urls(
     return urls
 
 
+def _probe_dmm_url_list(session, candidate_urls: List[str], min_size: int) -> str:
+    """Probe an ordered list of DMM image URLs and return the first valid image >= min_size bytes."""
+    if session is None or not candidate_urls:
+        return ""
+    for url in candidate_urls:
+        try:
+            resp = session.head(url, allow_redirects=True, timeout=5)
+            final_url = str(getattr(resp, "url", url))
+            if resp.status_code != 200 or "now_printing" in final_url or "noimage" in final_url:
+                continue
+            content_len = int(resp.headers.get("content-length") or resp.headers.get("Content-Length") or 0)
+            if content_len >= min_size:
+                return url
+            if content_len == 0:
+                g_resp = session.get(url, allow_redirects=True, timeout=6)
+                if (
+                    g_resp.status_code == 200
+                    and "now_printing" not in str(getattr(g_resp, "url", url))
+                    and len(g_resp.content) >= min_size
+                ):
+                    return url
+        except Exception:
+            continue
+    return ""
+
+
 def resolve_dmm_hd_cover(
     number: str,
     session,
@@ -289,27 +315,93 @@ def resolve_dmm_hd_cover(
 
     conf = cover_upgrade_conf or {}
     min_size = int(conf.get("min_content_length", 20000))
+    hit = _probe_dmm_url_list(session, candidate_urls, min_size)
+    return hit if hit else fallback_cover
 
-    for url in candidate_urls:
-        try:
-            resp = session.head(url, allow_redirects=True, timeout=5)
-            final_url = str(getattr(resp, "url", url))
-            if resp.status_code != 200 or "now_printing" in final_url or "noimage" in final_url:
-                continue
-            content_len = int(resp.headers.get("content-length") or resp.headers.get("Content-Length") or 0)
-            if content_len >= min_size:
-                return url
-            if content_len == 0:
-                # Fallback range/get check if server omitted Content-Length on HEAD
-                g_resp = session.get(url, allow_redirects=True, timeout=6)
-                if (
-                    g_resp.status_code == 200
-                    and "now_printing" not in str(getattr(g_resp, "url", url))
-                    and len(g_resp.content) >= min_size
-                ):
-                    return url
-        except Exception:
-            continue
 
-    return fallback_cover
+def resolve_separate_poster(
+    number: str,
+    session,
+    cover: str = "",
+    extrafanart: Optional[List[str]] = None,
+    trailer: str = "",
+) -> str:
+    """
+    Resolve dedicated vertical poster URL for SOD series whose horizontal cover (pl.jpg)
+    is a full-bleed back-cover collage rather than a standard front+back DVD jacket:
+    1. First probe DMM high-resolution ps.jpg (>= 45 KB, i.e. 760x1080 ~ 1537x2184, rejecting 147x200 thumbnails).
+    2. For the 13 ps_with_jp1_fallback series (excluding ps_only series like SDHS), fall back to
+       DMM jp-1.jpg (>= 20 KB) or the scraper's first sample image (extrafanart[0]).
+    """
+    if not number:
+        return ""
+    m = re.match(r"^(?:\d{3})?([a-zA-Z][a-zA-Z0-9]{1,6})-(\d{2,5})", number.strip())
+    if not m:
+        return ""
+
+    prefix_upper = m.group(1).upper()
+    norm_number = f"{prefix_upper}-{m.group(2)}"
+
+    makers_data = load_source_rules("dmm_makers")
+    sep_rules = makers_data.get("separate_poster_rules") or {}
+    ps_with_jp1 = {str(p).upper() for p in (sep_rules.get("ps_with_jp1_fallback_prefixes") or [])}
+    ps_only = {str(p).upper() for p in (sep_rules.get("ps_only_prefixes") or [])}
+
+    if prefix_upper not in ps_with_jp1 and prefix_upper not in ps_only:
+        return ""
+
+    min_ps_size = int(sep_rules.get("min_ps_content_length", 45000))
+    min_jp1_size = int(sep_rules.get("min_jp1_content_length", 20000))
+
+    hint_cid = extract_dmm_cid_from_url(cover) or extract_dmm_cid_from_url(trailer)
+    if not hint_cid and extrafanart:
+        for sample_url in extrafanart:
+            if isinstance(sample_url, str):
+                hint_cid = extract_dmm_cid_from_url(sample_url)
+                if hint_cid:
+                    break
+
+    cids = build_dmm_candidate_cids(norm_number, hint_cid=hint_cid)
+    tpl_map = makers_data.get("templates") or {}
+    ps_templates = [
+        tpl_map.get("digital_ps", "https://awsimgsrc.dmm.co.jp/pics_dig/digital/video/{cid}/{cid}ps.jpg"),
+        tpl_map.get("digital_legacy_ps", "https://pics.dmm.co.jp/digital/video/{cid}/{cid}ps.jpg"),
+        tpl_map.get("mono_ps", "https://pics.dmm.co.jp/mono/movie/adult/{cid}/{cid}ps.jpg"),
+    ]
+    ps_urls: List[str] = []
+    for cid in cids:
+        for tpl in ps_templates:
+            u = tpl.format(cid=cid)
+            if u not in ps_urls:
+                ps_urls.append(u)
+
+    ps_hit = _probe_dmm_url_list(session, ps_urls, min_ps_size)
+    if ps_hit:
+        return ps_hit
+
+    if prefix_upper in ps_only:
+        return ""
+
+    jp1_templates = [
+        tpl_map.get("digital_jp1", "https://awsimgsrc.dmm.co.jp/pics_dig/digital/video/{cid}/{cid}jp-1.jpg"),
+        tpl_map.get("digital_legacy_jp1", "https://pics.dmm.co.jp/digital/video/{cid}/{cid}jp-1.jpg"),
+    ]
+    jp1_urls: List[str] = []
+    for cid in cids:
+        for tpl in jp1_templates:
+            u = tpl.format(cid=cid)
+            if u not in jp1_urls:
+                jp1_urls.append(u)
+
+    jp1_hit = _probe_dmm_url_list(session, jp1_urls, min_jp1_size)
+    if jp1_hit:
+        return jp1_hit
+
+    if extrafanart and isinstance(extrafanart, list):
+        first_sample = extrafanart[0]
+        if isinstance(first_sample, str) and first_sample.strip().startswith("http"):
+            return first_sample.strip()
+
+    return ""
+
 

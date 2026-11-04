@@ -13,6 +13,7 @@ from .rule_loader import (
     eval_first_xpath,
     load_source_rules,
     resolve_dmm_hd_cover,
+    resolve_separate_poster,
 )
 
 
@@ -94,6 +95,17 @@ class Airav(Parser):
                     fallback_cover=fallback_dic.get("cover", ""),
                     cover_upgrade_conf=cover_upgrade_conf,
                 )
+            if not fallback_dic.get("cover_small"):
+                sep_poster = resolve_separate_poster(
+                    self.number,
+                    self.session,
+                    cover=fallback_dic.get("cover", ""),
+                    extrafanart=fallback_dic.get("extrafanart") if isinstance(fallback_dic.get("extrafanart"), list) else [],
+                    trailer=fallback_dic.get("trailer", ""),
+                )
+                if sep_poster:
+                    fallback_dic["cover_small"] = sep_poster
+                    fallback_dic["imagecut"] = 3
             return json.dumps(fallback_dic, ensure_ascii=False, sort_keys=True, separators=(',', ':'))
 
         return json.dumps({"title": ""}, ensure_ascii=False)

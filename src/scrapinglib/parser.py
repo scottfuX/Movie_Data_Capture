@@ -180,6 +180,18 @@ class Parser:
                 'imagecut': self._safe_extract('imagecut', self.getImagecut, htmltree, self.imagecut),
             }
             dic = self.extradict(dic)
+            if not dic.get('cover_small'):
+                from .rule_loader import resolve_separate_poster
+                sep_poster = resolve_separate_poster(
+                    dic.get('number') or getattr(self, 'number', ''),
+                    getattr(self, 'session', None),
+                    cover=dic.get('cover', ''),
+                    extrafanart=dic.get('extrafanart') if isinstance(dic.get('extrafanart'), list) else [],
+                    trailer=dic.get('trailer', ''),
+                )
+                if sep_poster:
+                    dic['cover_small'] = sep_poster
+                    dic['imagecut'] = 3
         except Exception as e:
             if config.getInstance().debug():
                 print(e)
