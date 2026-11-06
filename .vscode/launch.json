@@ -11,7 +11,7 @@
         "PYTHONPATH": "${workspaceFolder}",
         "VIRTUAL_ENV": "${workspaceFolder}/.venv"
       },
-      "program": "${workspaceFolder}/Movie_Data_Capture.py",
+      "program": "${workspaceFolder}/src/main.py",
       "cwd": "${workspaceFolder}",
       "args": [],
       "justMyCode": true

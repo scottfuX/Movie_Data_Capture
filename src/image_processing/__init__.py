@@ -8,7 +8,7 @@ import importlib
 from pathlib import Path
 from PIL import Image
 import shutil
-from adc_function import file_not_exist_or_empty
+from adc_function import is_valid_image_file
 
 
 def face_crop_width(filename, width, height):
@@ -71,7 +71,7 @@ def cutImage(imagecut, path, thumb_path, poster_path, skip_facerec=False):
         imagecut = 1
     if conf.face_aways_imagecut():
         imagecut = 1
-    elif conf.download_only_missing_images() and not file_not_exist_or_empty(fullpath_poster):
+    elif conf.download_only_missing_images() and is_valid_image_file(fullpath_poster):
         return
     # imagecut为4时同时也是有码影片 也用人脸识别裁剪封面
     if imagecut == 1 or imagecut == 4:  # 剪裁大封面

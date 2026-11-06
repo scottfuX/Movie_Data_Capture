@@ -8,9 +8,11 @@ import time
 import typing
 from unicodedata import category
 from concurrent.futures import ThreadPoolExecutor
+from io import BytesIO
 
 # third party lib
 import requests
+from PIL import Image
 from requests.adapters import HTTPAdapter
 import mechanicalsoup
 from pathlib import Path
@@ -427,6 +429,28 @@ def file_not_exist_or_empty(filepath) -> bool:
     return not os.path.isfile(filepath) or os.path.getsize(filepath) == 0
 
 
+def is_valid_image_bytes(data) -> bool:
+    if not isinstance(data, (bytes, bytearray)) or not data:
+        return False
+    try:
+        with Image.open(BytesIO(data)) as image:
+            image.load()
+        return True
+    except Exception:
+        return False
+
+
+def is_valid_image_file(filepath) -> bool:
+    if not os.path.isfile(filepath):
+        return False
+    try:
+        with Image.open(filepath) as image:
+            image.load()
+        return True
+    except Exception:
+        return False
+
+
 def is_japanese(raw: str) -> bool:
     """
     日语简单检测
@@ -498,14 +522,19 @@ def download_one_file(args) -> str:
     """
 
     (url, save_path, json_headers) = args
-    if json_headers is not None:
-        filebytes = get_html(url, return_type='content', json_headers=json_headers['headers'])
-    else:
-        filebytes = get_html(url, return_type='content')
-    if isinstance(filebytes, bytes) and len(filebytes):
-        with save_path.open('wb') as fpbyte:
-            if len(filebytes) == fpbyte.write(filebytes):
-                return str(save_path)
+    headers = json_headers['headers'] if json_headers is not None else None
+    response = get_html(url, return_type='object', json_headers=headers)
+    if response is None or not getattr(response, 'ok', False):
+        return None
+    filebytes = response.content
+    if not isinstance(filebytes, bytes) or not filebytes:
+        return None
+    if save_path.suffix.lower() in ('.jpg', '.jpeg', '.png', '.gif', '.bmp', '.webp') \
+            and not is_valid_image_bytes(filebytes):
+        return None
+    with save_path.open('wb') as fpbyte:
+        if len(filebytes) == fpbyte.write(filebytes):
+            return str(save_path)
 
 
 def parallel_download_files(dn_list: typing.Iterable[typing.Sequence], parallel: int = 0, json_headers=None):

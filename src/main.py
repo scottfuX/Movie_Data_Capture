@@ -22,7 +22,7 @@ from opencc import OpenCC
 from scraper import get_data_from_json
 from adc_function import file_modification_days, get_html, parallel_download_files
 from number_parser import get_number
-from core import core_main, core_main_no_net_op, moveFailedFolder, debug_print
+from core import core_main, core_main_no_net_op, moveFailedFolder, debug_print, normalize_ltx_version_tag
 
 
 def check_update(local_version):
@@ -447,9 +447,17 @@ def rm_empty_folder(path):
 
 
 def create_data_and_move(movie_path: str, zero_op: bool, no_net_op: bool, oCC, thread_list):
+    # Normalized number, eg: 111xxx-222.mp4 -> xxx-222.mp4
+    debug = config.getInstance().debug()
     try:
-        # Normalized number, eg: 111xxx-222.mp4 -> xxx-222.mp4
-        debug = config.getInstance().debug()
+        movie_path = normalize_ltx_version_tag(movie_path, dry_run=zero_op)
+    except Exception as err:
+        print(f"[-] [{movie_path}] version tag normalization ERROR: {err}")
+        if threading.current_thread().name in thread_list:
+            thread_list.remove(threading.current_thread().name)
+        return
+
+    try:
         n_number = get_number(debug, os.path.basename(movie_path))
         movie_path = os.path.abspath(movie_path)
 
@@ -493,6 +501,12 @@ def create_data_and_move(movie_path: str, zero_op: bool, no_net_op: bool, oCC, t
 
 def create_data_and_move_with_custom_number(file_path: str, custom_number, oCC, specified_source, specified_url):
     conf = config.getInstance()
+    try:
+        file_path = normalize_ltx_version_tag(file_path)
+    except Exception as err:
+        print(f"[-] [{file_path}] version tag normalization ERROR: {err}")
+        return
+
     file_name = os.path.basename(file_path)
     try:
         print("[!] [{1}] As Number Processing for '{0}'".format(file_path, custom_number))

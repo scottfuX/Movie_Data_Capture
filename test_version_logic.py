@@ -23,6 +23,8 @@ class VersionType(IntEnum):
     UNCENSORED = 1    # -U 无码破解
     LEAK = 2          # -leak 流出
     UC_COMBO = 2      # -UC 无码破解+中文
+    LTX_U = 3         # -LTX-U LTX模型破解
+    LTX_UC = 4        # -LTX-UC LTX模型破解+中文
 
 
 @dataclass
@@ -32,6 +34,7 @@ class VersionInfo:
     cn_sub: bool
     leak: bool
     hack: bool
+    ltx: bool = False
 
     @property
     def priority(self) -> int:
@@ -40,7 +43,11 @@ class VersionInfo:
 
     def get_version_suffix(self) -> str:
         """获取统一的版本标识后缀用于文件命名"""
-        if self.hack and self.cn_sub:
+        if self.ltx and self.cn_sub:
+            return '-LTX-UC'
+        elif self.ltx:
+            return '-LTX-U'
+        elif self.hack and self.cn_sub:
             return '-UC'
         elif self.hack:
             return '-U'
@@ -58,6 +65,7 @@ def parse_version_from_path(movie_path: str, number: str) -> VersionInfo:
     cn_sub = False
     leak = False
     hack = False
+    ltx = False
 
     filename = os.path.basename(movie_path)
     filename_lower = filename.lower()
@@ -72,6 +80,10 @@ def parse_version_from_path(movie_path: str, number: str) -> VersionInfo:
         leak = True
 
     if 'hack' in str(movie_path).lower() or '破解' in movie_path:
+        hack = True
+
+    if re.search(r'[-_]ltx(?=\.\w+$|[-_]|$)', filename_lower):
+        ltx = True
         hack = True
 
     if re.search(r'[-_]uc(?=\.\w+$|[-_]|$)', filename_lower):
@@ -90,7 +102,11 @@ def parse_version_from_path(movie_path: str, number: str) -> VersionInfo:
        not re.search(r'[-_]lc', filename_lower):
         leak = True
 
-    if hack and cn_sub:
+    if ltx and cn_sub:
+        version_type = VersionType.LTX_UC
+    elif ltx:
+        version_type = VersionType.LTX_U
+    elif hack and cn_sub:
         version_type = VersionType.UC_COMBO
     elif leak:
         version_type = VersionType.LEAK
@@ -106,6 +122,7 @@ def parse_version_from_path(movie_path: str, number: str) -> VersionInfo:
         cn_sub=cn_sub,
         leak=leak,
         hack=hack,
+        ltx=ltx,
     )
 
 
@@ -118,10 +135,8 @@ def compare_versions(current_path: str, existing_path: str, number: str) -> str:
     existing_suffix = existing_vi.get_version_suffix()
 
     if current_suffix == existing_suffix:
-        st = os.stat(current_path)
-        current_time = st.st_birthtime if hasattr(st, 'st_birthtime') else st.st_mtime
-        st2 = os.stat(existing_path)
-        existing_time = st2.st_birthtime if hasattr(st2, 'st_birthtime') else st2.st_mtime
+        current_time = os.stat(current_path).st_mtime
+        existing_time = os.stat(existing_path).st_mtime
         if current_time > existing_time:
             return 'current_wins'
         else:
@@ -183,19 +198,22 @@ def test_priority_comparison():
 
     temp_dir = tempfile.mkdtemp()
     try:
+        base_mtime = 1700000000
         test_scenarios = [
-            # (existing_file, current_file, expected_result, description)
-            ('SSIS-001-C.mp4', 'SSIS-001-C.mp4', 'current_wins', '相同版本重复 - current 更新，覆盖 existing'),
-            ('SSIS-001-C.mp4', 'SSIS-001-U.mp4', 'coexist', '同优先级: -C vs -U'),
-            ('SSIS-001.mp4', 'SSIS-001-C.mp4', 'current_wins', '高优先级覆盖: -C 覆盖原版'),
-            ('SSIS-001.mp4', 'SSIS-001-UC.mp4', 'current_wins', '高优先级覆盖: -UC 覆盖原版'),
-            ('SSIS-001-C.mp4', 'SSIS-001-UC.mp4', 'current_wins', '高优先级覆盖: -UC 覆盖 -C'),
-            ('SSIS-001-UC.mp4', 'SSIS-001-L.mp4', 'coexist', '同优先级共存: -UC vs -L'),
-            ('SSIS-001.mp4', 'SSIS-001-UC.mp4', 'current_wins', '高优先级删除低优先级: -UC 删除原版'),
+            # (existing_file, current_file, current_mtime, expected_result, description)
+            ('SSIS-001-C.mp4', 'SSIS-001-C.mp4', base_mtime + 100, 'current_wins', '相同版本重复 - current 更新，覆盖 existing'),
+            ('SSIS-001-C.mp4', 'SSIS-001-C.mp4', base_mtime - 100, 'existing_wins', '相同版本重复 - current 较旧，保留 existing'),
+            ('SSIS-001-C.mp4', 'SSIS-001-U.mp4', base_mtime + 100, 'coexist', '同优先级: -C vs -U'),
+            ('SSIS-001.mp4', 'SSIS-001-C.mp4', base_mtime - 100, 'current_wins', '高优先级覆盖: -C 即使较旧也覆盖原版'),
+            ('SSIS-001.mp4', 'SSIS-001-UC.mp4', base_mtime + 100, 'current_wins', '高优先级覆盖: -UC 覆盖原版'),
+            ('SSIS-001-C.mp4', 'SSIS-001-UC.mp4', base_mtime + 100, 'current_wins', '高优先级覆盖: -UC 覆盖 -C'),
+            ('SSIS-001-UC.mp4', 'SSIS-001-L.mp4', base_mtime + 100, 'coexist', '同优先级共存: -UC vs -L'),
+            ('SSIS-001-UC.mp4', 'SSIS-001-C.mp4', base_mtime + 100, 'existing_wins', '低优先级即使较新也不覆盖 -UC'),
+            ('SSIS-001.mp4', 'SSIS-001-UC.mp4', base_mtime + 100, 'current_wins', '高优先级删除低优先级: -UC 删除原版'),
         ]
 
         all_passed = True
-        for existing, current, expected, desc in test_scenarios:
+        for existing, current, current_mtime, expected, desc in test_scenarios:
             # 使用不同的子目录来避免相同文件名指向同一文件
             existing_dir = os.path.join(temp_dir, 'existing')
             current_dir = os.path.join(temp_dir, 'current')
@@ -206,9 +224,9 @@ def test_priority_comparison():
             current_path = os.path.join(current_dir, current)
 
             Path(existing_path).touch()
-            import time
-            time.sleep(0.1)
             Path(current_path).touch()
+            os.utime(existing_path, (base_mtime, base_mtime))
+            os.utime(current_path, (current_mtime, current_mtime))
 
             result = compare_versions(current_path, existing_path, 'SSIS-001')
 

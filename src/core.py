@@ -28,6 +28,8 @@ class VersionType(IntEnum):
     UNCENSORED = 1    # -U 无码破解
     LEAK = 2          # -leak 流出
     UC_COMBO = 2      # -UC 无码破解+中文
+    LTX_U = 3         # -LTX-U LTX模型破解
+    LTX_UC = 4        # -LTX-UC LTX模型破解+中文
 
 
 @dataclass
@@ -37,6 +39,7 @@ class VersionInfo:
     cn_sub: bool          # 中文字幕标记
     leak: bool            # 流出标记
     hack: bool            # 破解/无码标记
+    ltx: bool = False     # LTX模型破解标记
 
     @property
     def priority(self) -> int:
@@ -45,7 +48,11 @@ class VersionInfo:
         if not conf.duplicate_enable_version_check():
             return int(self.version_type)
 
-        if self.version_type == VersionType.UC_COMBO:
+        if self.version_type == VersionType.LTX_UC:
+            return conf.duplicate_priority_ltx_uc()
+        elif self.version_type == VersionType.LTX_U:
+            return conf.duplicate_priority_ltx_u()
+        elif self.version_type == VersionType.UC_COMBO:
             return conf.duplicate_priority_uc()
         elif self.version_type == VersionType.LEAK:
             return conf.duplicate_priority_leak()
@@ -59,9 +66,13 @@ class VersionInfo:
     def get_version_suffix(self) -> str:
         """
         获取统一的版本标识后缀用于文件命名:
-        -C / -U / -UC / -leak / -leak-C / 空字符串
+        -LTX-UC / -LTX-U / -C / -U / -UC / -leak / -leak-C / 空字符串
         """
-        if self.hack and self.cn_sub:
+        if self.ltx and self.cn_sub:
+            return '-LTX-UC'
+        elif self.ltx:
+            return '-LTX-U'
+        elif self.hack and self.cn_sub:
             return '-UC'
         elif self.hack:
             return '-U'
@@ -80,11 +91,12 @@ class VersionInfo:
 def parse_version_from_path(movie_path: str, number: str) -> VersionInfo:
     """
     从文件路径解析版本信息，统一识别各种标记并返回 VersionInfo。
-    支持识别: -C, -U, -UC, -leak, -L, -LC, -hack, 以及中文关键词。
+    支持识别: -LTX-UC, -LTX-U, -C, -U, -UC, -leak, -L, -LC, -hack, 以及中文关键词。
     """
     cn_sub = False
     leak = False
     hack = False
+    ltx = False
 
     filename = os.path.basename(movie_path)
     filename_lower = filename.lower()
@@ -102,6 +114,10 @@ def parse_version_from_path(movie_path: str, number: str) -> VersionInfo:
 
     # 检测破解/无码标记 (hack 或 破解)
     if 'hack' in str(movie_path).lower() or '破解' in movie_path:
+        hack = True
+
+    if re.search(r'[-_]ltx(?=\.\w+$|[-_]|$)', filename_lower):
+        ltx = True
         hack = True
 
     # -UC 组合标记 (无码破解+中文)
@@ -125,7 +141,11 @@ def parse_version_from_path(movie_path: str, number: str) -> VersionInfo:
         leak = True
 
     # 确定版本类型
-    if hack and cn_sub:
+    if ltx and cn_sub:
+        version_type = VersionType.LTX_UC
+    elif ltx:
+        version_type = VersionType.LTX_U
+    elif hack and cn_sub:
         version_type = VersionType.UC_COMBO
     elif leak:
         version_type = VersionType.LEAK
@@ -141,7 +161,43 @@ def parse_version_from_path(movie_path: str, number: str) -> VersionInfo:
         cn_sub=cn_sub,
         leak=leak,
         hack=hack,
+        ltx=ltx,
     )
+
+
+def normalize_ltx_version_tag(movie_path: str, dry_run: bool = False) -> str:
+    """刮削前将 -UC 规范为 -LTX-UC，将单独的 -LTX 规范为 -LTX-U。"""
+    path = pathlib.Path(movie_path)
+    normalized_stem = re.sub(
+        r'(?<!ltx)[-_]uc(?=$|[-_]cd\d+$)', '-LTX-UC', path.stem, flags=re.IGNORECASE
+    )
+    normalized_stem = re.sub(
+        r'[-_]ltx(?=$|[-_]cd\d+$)', '-LTX-U', normalized_stem, flags=re.IGNORECASE
+    )
+    if normalized_stem == path.stem:
+        return str(path)
+
+    target = path.with_name(normalized_stem + path.suffix)
+    operations = [(path, target)]
+    subtitle_extensions = config.getInstance().sub_rule()
+    for sidecar in path.parent.iterdir():
+        if not sidecar.is_file() or sidecar.suffix.lower() not in subtitle_extensions:
+            continue
+        if not sidecar.name.lower().startswith(path.stem.lower() + '.'):
+            continue
+        sidecar_target = sidecar.with_name(normalized_stem + sidecar.name[len(path.stem):])
+        operations.append((sidecar, sidecar_target))
+
+    for _, destination in operations:
+        if destination.exists():
+            raise FileExistsError(f"Refusing to overwrite existing file: {destination}")
+
+    for source, destination in operations:
+        print(f"[+]{'Would rename' if dry_run else 'Rename'}: {source.name} -> {destination.name}")
+        if not dry_run:
+            source.rename(destination)
+
+    return str(target)
 
 
 # ========================================================================
@@ -233,11 +289,8 @@ def delete_associated_files(video_file: pathlib.Path, number: str, version_suffi
 
 
 def _get_file_time(filepath) -> float:
-    """获取文件的最佳可用时间戳用于比较（优先 birthtime，回退到 mtime）"""
-    st = os.stat(filepath)
-    if hasattr(st, 'st_birthtime'):
-        return st.st_birthtime
-    return st.st_mtime
+    """获取文件修改时间用于比较"""
+    return os.stat(filepath).st_mtime
 
 
 def handle_duplicate_video(
@@ -344,13 +397,12 @@ def get_info(json_data):  # 返回json里的数据
 
 def small_cover_check(path, filename, cover_small, movie_path, json_headers=None):
     full_filepath = Path(path) / filename
-    if config.getInstance().download_only_missing_images() and not file_not_exist_or_empty(str(full_filepath)):
+    if config.getInstance().download_only_missing_images() and is_valid_image_file(full_filepath):
         return
-    if json_headers != None:
-        download_file_with_filename(cover_small, filename, path, movie_path, json_headers['headers'])
-    else:
-        download_file_with_filename(cover_small, filename, path, movie_path)
-    print('[+]Image Downloaded! ' + full_filepath.name)
+    headers = json_headers['headers'] if json_headers is not None else None
+    result = download_file_with_filename(cover_small, filename, path, movie_path, headers)
+    if result != 'failed' and is_valid_image_file(full_filepath):
+        print('[+]Image Downloaded! ' + full_filepath.name)
 
 
 def create_folder(json_data):  # 创建文件夹
@@ -400,32 +452,31 @@ def download_file_with_filename(url, filename, path, filepath, json_headers=None
                 except:
                     print(f"[-]Fatal error! Can not make folder '{path}'")
                     os._exit(0)
-            r = get_html(url=url, return_type='content', json_headers=json_headers)
-            if not r:
-                print('[-]Movie Download Data not found!')
-                return
-            # # 验证下载的图片是否完整
-            # if filename.lower().endswith(('.jpg', '.jpeg', '.png', '.gif', '.webp')):
-            #     try:
-            #         img = Image.open(BytesIO(r))
-            #         img.load()  # 强制加载所有像素数据来验证完整性
-            #     except Exception as img_err:
-            #         print(f'[-]Downloaded image is corrupted, retrying... {img_err}')
+            response = get_html(url=url, return_type='object', json_headers=json_headers)
+            if response is None or not getattr(response, 'ok', False):
+                status = getattr(response, 'status_code', 'N/A')
+                print(f'[-]Download HTTP status {status}, retrying...')
+                continue
+            content = response.content
+            if not content:
+                print('[-]Downloaded file is empty, retrying...')
+                continue
+            if filename.lower().endswith(('.jpg', '.jpeg', '.png', '.gif', '.bmp', '.webp')) \
+                    and not is_valid_image_bytes(content):
+                content_type = getattr(response, 'headers', {}).get('Content-Type', 'unknown')
+                print(f'[-]Downloaded content is not a valid image ({content_type}), retrying...')
+                continue
             with open(os.path.join(path, filename), "wb") as code:
-                code.write(r)
+                code.write(content)
             return
         except requests.exceptions.ProxyError:
             i += 1
             print('[-]Image Download : Proxy error ' + str(i) + '/' + str(configProxy.retry))
-        # except IOError:
-        #     print(f"[-]Create Directory '{path}' failed!")
-        #     moveFailedFolder(filepath)
-        #     return
         except Exception as e:
             print('[-]Image Download :Error', e)
     print('[-]Connect Failed! Please check your Proxy or Network!')
     moveFailedFolder(filepath)
-    return
+    return 'failed'
 
 
 def trailer_download(trailer, version_suffix, number, path, filepath):
@@ -462,7 +513,7 @@ def actor_photo_download(actors, save_dir, number):
             continue
         ext = res.group(1)
         pic_fullpath = actors_dir / f'{actor_name}{ext}'
-        if download_only_missing_images and not file_not_exist_or_empty(pic_fullpath):
+        if download_only_missing_images and is_valid_image_file(pic_fullpath):
             continue
         dn_list.append((url, pic_fullpath))
     if not len(dn_list):
@@ -495,24 +546,15 @@ def extrafanart_download_one_by_one(data, path, filepath, json_data=None):
     j = 1
     conf = config.getInstance()
     path = os.path.join(path, conf.get_extrafanart())
-    configProxy = conf.proxy()
     download_only_missing_images = conf.download_only_missing_images()
     for url in data:
         jpg_filename = f'extrafanart-{j}.jpg'
         jpg_fullpath = os.path.join(path, jpg_filename)
-        if download_only_missing_images and not file_not_exist_or_empty(jpg_fullpath):
+        if download_only_missing_images and is_valid_image_file(jpg_fullpath):
             continue
         if download_file_with_filename(url, jpg_filename, path, filepath, json_data) == 'failed':
-            moveFailedFolder(filepath)
             return
-        for i in range(configProxy.retry):
-            if file_not_exist_or_empty(jpg_fullpath):
-                print('[!]Image Download Failed! Trying again. [{}/3]', i + 1)
-                download_file_with_filename(url, jpg_filename, path, filepath, json_data)
-                continue
-            else:
-                break
-        if file_not_exist_or_empty(jpg_fullpath):
+        if not is_valid_image_file(jpg_fullpath):
             return
         print('[+]Image Downloaded!', Path(jpg_fullpath).name)
         j += 1
@@ -528,7 +570,7 @@ def extrafanart_download_threadpool(url_list, save_dir, number, json_data=None):
     dn_list = []
     for i, url in enumerate(url_list, start=1):
         jpg_fullpath = extrafanart_dir / f'extrafanart-{i}.jpg'
-        if download_only_missing_images and not file_not_exist_or_empty(jpg_fullpath):
+        if download_only_missing_images and is_valid_image_file(jpg_fullpath):
             continue
         dn_list.append((url, jpg_fullpath))
     if not len(dn_list):
@@ -564,33 +606,20 @@ def image_ext(url):
 # 封面是否下载成功，否则移动到failed
 def image_download(cover, fanart_path, thumb_path, path, filepath, json_headers=None):
     full_filepath = os.path.join(path, thumb_path)
-    if config.getInstance().download_only_missing_images() and not file_not_exist_or_empty(full_filepath):
-        return
-    if json_headers != None:
-        if download_file_with_filename(cover, thumb_path, path, filepath, json_headers['headers']) == 'failed':
-            moveFailedFolder(filepath)
-            return
-    else:
-        if download_file_with_filename(cover, thumb_path, path, filepath) == 'failed':
-            moveFailedFolder(filepath)
-            return
+    conf = config.getInstance()
+    if conf.download_only_missing_images() and is_valid_image_file(full_filepath):
+        return True
 
-    configProxy = config.getInstance().proxy()
-    for i in range(configProxy.retry):
-        if file_not_exist_or_empty(full_filepath):
-            print('[!]Image Download Failed! Trying again. [{}/3]', i + 1)
-            if json_headers != None:
-                download_file_with_filename(cover, thumb_path, path, filepath, json_headers['headers'])
-            else:
-                download_file_with_filename(cover, thumb_path, path, filepath)
-            continue
-        else:
-            break
-    if file_not_exist_or_empty(full_filepath):
-        return
+    headers = json_headers['headers'] if json_headers is not None else None
+    if download_file_with_filename(cover, thumb_path, path, filepath, headers) == 'failed':
+        return False
+    if not is_valid_image_file(full_filepath):
+        return False
+
     print('[+]Image Downloaded!', Path(full_filepath).name)
-    if not config.getInstance().jellyfin():
+    if not conf.jellyfin():
         shutil.copyfile(full_filepath, os.path.join(path, fanart_path))
+    return True
 
 
 def print_files(path, version_suffix, naming_rule, part, cn_sub, json_data, filepath, tag, actor_list, leak,
@@ -870,7 +899,18 @@ def add_to_pic(pic_path, img_pic, size, count, mode):
         {'x': 0, 'y': img_pic.height - scroll_high},
     ]
     img_pic.paste(img_subt, (pos[count]['x'], pos[count]['y']), mask=a)
-    img_pic.save(pic_path, quality=95)
+    if Path(pic_path).suffix.lower() in ('.jpg', '.jpeg'):
+        encoded = BytesIO()
+        if img_pic.mode == 'RGB':
+            img_pic.save(encoded, format='JPEG', quality=95)
+        else:
+            converted = img_pic.convert('RGB')
+            converted.save(encoded, format='JPEG', quality=95)
+            converted.close()
+        with open(pic_path, 'wb') as output_file:
+            output_file.write(encoded.getvalue())
+    else:
+        img_pic.save(pic_path, quality=95)
 
 
 # ========================结束=================================
@@ -1156,16 +1196,19 @@ def core_main(movie_path, number_th, oCC, specified_source=None, specified_url=N
             poster_file = output_dir / f'{number}{version_suffix}-poster.jpg' if version_suffix else output_dir / 'poster.jpg'
             if not poster_file.is_file():
                 poster_file = output_dir / 'poster.jpg'
+            thumb_file = output_dir / f'{number}{version_suffix}-thumb.jpg' if version_suffix else output_dir / 'thumb.jpg'
+            if not thumb_file.is_file():
+                thumb_file = output_dir / 'thumb.jpg'
+            existing_images_valid = is_valid_image_file(poster_file) and (
+                not thumb_file.is_file() or is_valid_image_file(thumb_file)
+            )
 
-            if nfo_files and poster_file.is_file():
+            if nfo_files and existing_images_valid:
                 print(f'[!]Found existing output directory: {output_dir}')
                 print(f'[!]NFO file exists: {nfo_files[0].name}')
                 print(f'[!]Poster file exists: {poster_file.name}')
 
                 if conf.is_watermark():
-                    thumb_file = output_dir / f'{number}{version_suffix}-thumb.jpg' if version_suffix else output_dir / 'thumb.jpg'
-                    if not thumb_file.is_file():
-                        thumb_file = output_dir / 'thumb.jpg'
                     if thumb_file.is_file():
                         add_mark(str(poster_file), str(thumb_file), cn_sub, leak, uncensored, hack, _4k, iso)
                         print('[+]Watermark added to existing poster and thumb')
@@ -1235,9 +1278,11 @@ def core_main(movie_path, number_th, oCC, specified_source=None, specified_url=N
                 small_cover_check(path, poster_path, json_data.get('cover_small'), movie_path)
 
         if 'headers' in json_data:
-            image_download(cover, fanart_path, thumb_path, path, movie_path, json_data)
+            if not image_download(cover, fanart_path, thumb_path, path, movie_path, json_data):
+                return
         else:
-            image_download(cover, fanart_path, thumb_path, path, movie_path)
+            if not image_download(cover, fanart_path, thumb_path, path, movie_path):
+                return
 
         if not multi_part or part.lower() == '-cd1':
             try:
@@ -1290,9 +1335,11 @@ def core_main(movie_path, number_th, oCC, specified_source=None, specified_url=N
                 small_cover_check(path, poster_path, json_data.get('cover_small'), movie_path)
 
         if 'headers' in json_data:
-            image_download(cover, fanart_path, thumb_path, path, movie_path, json_data)
+            if not image_download(cover, fanart_path, thumb_path, path, movie_path, json_data):
+                return
         else:
-            image_download(cover, fanart_path, thumb_path, path, movie_path)
+            if not image_download(cover, fanart_path, thumb_path, path, movie_path):
+                return
 
         if not multi_part or part.lower() == '-cd1':
             try:

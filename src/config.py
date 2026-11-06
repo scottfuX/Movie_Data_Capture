@@ -444,6 +444,14 @@ class Config:
         """是否启用版本检测和重复处理"""
         return self.conf.getboolean("duplicate", "enable_version_check", fallback=True)
 
+    def duplicate_priority_ltx_uc(self) -> int:
+        """-LTX-UC (LTX模型破解+中文) 优先级"""
+        return self.conf.getint("duplicate", "priority_ltx_uc", fallback=4)
+
+    def duplicate_priority_ltx_u(self) -> int:
+        """-LTX-U (LTX模型破解) 优先级"""
+        return self.conf.getint("duplicate", "priority_ltx_u", fallback=3)
+
     def duplicate_priority_uc(self) -> int:
         """-UC (无码破解+中文) 优先级"""
         return self.conf.getint("duplicate", "priority_uc", fallback=2)

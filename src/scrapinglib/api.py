@@ -5,6 +5,7 @@ import json
 from .parser import Parser
 import config
 import importlib
+from .fc2 import get_fc2_article_id
 
 
 def search(number, sources: str = None, **kwargs):
@@ -115,6 +116,13 @@ class Scraping:
         return json_data
 
     def searchAdult(self, number, sources):
+        query_number = number
+        if 'fc2' in number.lower():
+            article_id = get_fc2_article_id(number)
+            if not article_id:
+                return None
+            query_number = f'FC2-{article_id}'
+
         if self.specifiedSource:
             sources = [self.specifiedSource]
         elif type(sources) is list:
@@ -130,7 +138,7 @@ class Scraping:
                     module = importlib.import_module('.' + source, 'scrapinglib')
                     parser_type = getattr(module, source.capitalize())
                     parser: Parser = parser_type()
-                    data = parser.scrape(number, self)
+                    data = parser.scrape(query_number, self)
                     if data == 404:
                         continue
                     json_data = json.loads(data)
@@ -140,6 +148,8 @@ class Scraping:
                     # json_data = self.func_mapping[source](number, self)
                 # if any service return a valid return, break
                 if self.get_data_state(json_data):
+                    if query_number != number:
+                        json_data['number'] = number
                     if self.debug:
                         print(f"[+]Find movie [{number}] metadata on website '{source}'")
                     break
@@ -218,7 +228,7 @@ class Scraping:
             elif "pcolle" in sources and "pcolle" in lo_file_number:
                 sources = ["pcolle"]
             elif "fc2" in lo_file_number:
-                sources = ["fc2", "avsox"]
+                sources = [source for source in ("fc2", "avsox", "javdb") if source in sources]
             elif (re.search(r"\d+\D+-", file_number) or "siro" in lo_file_number):
                 if "mgstage" in sources:
                     sources = insert(sources, "mgstage")
