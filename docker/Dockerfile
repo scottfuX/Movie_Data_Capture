@@ -14,13 +14,21 @@ ENV GID=1000
 ENV UMASK=002
 
 RUN \
-    apt-get -y update && apt-get -y upgrade \
-    && apt install -y -q \
-        chromium \
+    apt-get -y update \
+    && apt-get install -y -q --no-install-recommends \
+        ca-certificates \
         gosu \
+        libblas3 \
+        libjpeg62-turbo \
+        liblapack3 \
+        libpng16-16 \
+        libx11-6 \
+        libxcb1 \
+        tzdata \
         util-linux \
     && apt-get autoremove --purge -y \
     && apt-get clean -y \
+    && rm -rf /var/lib/apt/lists/* /tmp/* /var/tmp/* \
     && mkdir -p /data /config /app \
     && groupadd -g ${GID} mdc \
     && useradd -u ${UID} -g mdc -d /config -s /bin/sh mdc \
@@ -32,6 +40,9 @@ ADD --chmod=755 scripts/docker-entrypoint.sh /docker-entrypoint.sh
 COPY dist/Movie_Data_Capture/ /app/
 # Explicitly copy the clean default configuration template
 COPY config.ini /app/config.ini
+
+# Smoke-test binary and shared libraries at build time
+RUN cd /app && /app/Movie_Data_Capture --version
 
 VOLUME [ "/data", "/config" ]
 

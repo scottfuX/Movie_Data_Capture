@@ -87,7 +87,8 @@ class Fanza(Parser):
             return ''
 
     def getRuntime(self, htmltree):
-        return str(re.search(r'\d+', super().getRuntime(htmltree)).group()).strip(" ['']")
+        m = re.search(r'\d+', super().getRuntime(htmltree) or '')
+        return str(m.group()).strip(" ['']") if m else ''
 
     def getDirector(self, htmltree):
         if "anime" not in self.detailurl:

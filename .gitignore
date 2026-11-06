@@ -115,3 +115,11 @@ failed/*
 
 .python/
 .tmp/
+
+/.kiro
+
+# Site session / cookie files in workspace root
+/javdb*.json
+/airav*.json
+/javlibrary*.json
+!src/scrapinglib/rules/*.json

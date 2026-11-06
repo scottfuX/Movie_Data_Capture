@@ -1,0 +1,439 @@
+{
+  "version": "2026.10.1",
+  "description": "Deterministic DMM/FANZA studio prefix metadata registry (maps label prefixes to DMM maker codes and distribution channels)",
+  "templates": {
+    "digital": "https://awsimgsrc.dmm.co.jp/pics_dig/digital/video/{cid}/{cid}pl.jpg",
+    "digital_legacy": "https://pics.dmm.co.jp/digital/video/{cid}/{cid}pl.jpg",
+    "mono": "https://pics.dmm.co.jp/mono/movie/adult/{cid}/{cid}pl.jpg",
+    "amateur": "https://awsimgsrc.dmm.co.jp/pics_dig/digital/amateur/{cid}/{cid}jp.jpg",
+    "digital_ps": "https://awsimgsrc.dmm.co.jp/pics_dig/digital/video/{cid}/{cid}ps.jpg",
+    "digital_legacy_ps": "https://pics.dmm.co.jp/digital/video/{cid}/{cid}ps.jpg",
+    "mono_ps": "https://pics.dmm.co.jp/mono/movie/adult/{cid}/{cid}ps.jpg",
+    "digital_jp1": "https://awsimgsrc.dmm.co.jp/pics_dig/digital/video/{cid}/{cid}jp-1.jpg",
+    "digital_legacy_jp1": "https://pics.dmm.co.jp/digital/video/{cid}/{cid}jp-1.jpg"
+  },
+  "separate_poster_rules": {
+    "ps_with_jp1_fallback_prefixes": [
+      "START",
+      "STARS",
+      "SDJS",
+      "SDDE",
+      "SDNM",
+      "SDMM",
+      "SDAB",
+      "SDAM",
+      "SDMF",
+      "SDTH",
+      "MSFH",
+      "KMHRS",
+      "KIRE"
+    ],
+    "ps_only_prefixes": [
+      "SDHS"
+    ],
+    "min_ps_content_length": 45000,
+    "min_jp1_content_length": 20000
+  },
+  "groups": {
+    "direct_digital": {
+      "maker_prefix": "",
+      "channels": [
+        "digital_padded",
+        "mono_raw",
+        "digital_legacy_padded",
+        "mono_padded"
+      ],
+      "prefixes": [
+        "SONE",
+        "SNOS",
+        "ONED",
+        "SSIS",
+        "SSNI",
+        "SNIS",
+        "SOE",
+        "OFJE",
+        "SIVR",
+        "IPZZ",
+        "IPX",
+        "IPZ",
+        "IPTD",
+        "SUPD",
+        "IPVR",
+        "MIDV",
+        "MIDA",
+        "MIDE",
+        "MIDD",
+        "MIAA",
+        "MIAB",
+        "MIMK",
+        "MIRD",
+        "MIVR",
+        "MNGS",
+        "JUQ",
+        "JUR",
+        "ROE",
+        "JUL",
+        "JUSD",
+        "JUX",
+        "JUY",
+        "OBA",
+        "URE",
+        "ACHJ",
+        "NIYA",
+        "MDVR",
+        "CAWD",
+        "CAWB",
+        "KAVR",
+        "KWBD",
+        "ADN",
+        "RBK",
+        "SAME",
+        "SHKD",
+        "ATID",
+        "SSPD",
+        "EBWH",
+        "EBOD",
+        "EYAN",
+        "MKCK",
+        "JFB",
+        "JUFE",
+        "JUNY",
+        "NIMA",
+        "FPRE",
+        "MFYD",
+        "WAAA",
+        "WANZ",
+        "DASD",
+        "DASS",
+        "DAZD",
+        "HMN",
+        "HND",
+        "PRED",
+        "PGD",
+        "PBD",
+        "PRVR",
+        "PPPE",
+        "PPPD",
+        "MEYD",
+        "MDYD",
+        "BF",
+        "RKI",
+        "BLK",
+        "CJOD",
+        "MUDR",
+        "MUKD",
+        "MUKC",
+        "MVSD",
+        "MVG",
+        "NGOD",
+        "AVOP",
+        "SQTE",
+        "SORA",
+        "NPJS",
+        "HODV",
+        "OAE",
+        "HUNTA",
+        "HUNTB",
+        "HUNTC",
+        "HUNTD",
+        "ROYD",
+        "AARM",
+        "AQSH",
+        "ETQR",
+        "MMKZ",
+        "TPPN",
+        "SCOP",
+        "REAL",
+        "UMSO",
+        "MDTM"
+      ]
+    },
+    "maker_1": {
+      "maker_prefix": "1",
+      "channels": [
+        "digital_padded",
+        "mono_raw",
+        "digital_legacy_padded",
+        "mono_padded"
+      ],
+      "prefixes": [
+        "STARS",
+        "START",
+        "STAR",
+        "DLDSS",
+        "SDJS",
+        "SDDE",
+        "SDMU",
+        "SDNM",
+        "SDMM",
+        "SDAB",
+        "SDAM",
+        "SDMF",
+        "SDMT",
+        "SDHS",
+        "SDTH",
+        "MSFH",
+        "KMHRS",
+        "FSET",
+        "KIRE",
+        "FNS",
+        "FSDSS",
+        "FADSS",
+        "FLNS",
+        "FCH",
+        "DANDY",
+        "NHDTB",
+        "NHDTA",
+        "HBAD",
+        "IENF",
+        "IEP",
+        "SW",
+        "RCTD",
+        "RCT",
+        "SILK",
+        "GAR",
+        "MTALL"
+      ]
+    },
+    "prestige_118_mono_only": {
+      "maker_prefix": "118",
+      "channels": [
+        "mono_raw",
+        "digital_padded",
+        "mono_padded"
+      ],
+      "prefixes": [
+        "ABF",
+        "ABW"
+      ]
+    },
+    "prestige_118": {
+      "maker_prefix": "118",
+      "channels": [
+        "digital_padded",
+        "mono_raw",
+        "mono_padded"
+      ],
+      "prefixes": [
+        "ABP",
+        "ABS",
+        "ABN",
+        "ABG",
+        "CHN",
+        "TEM",
+        "TRE",
+        "YRH",
+        "MGT",
+        "DOCP",
+        "SGA",
+        "KBI",
+        "ONEZ",
+        "EDD",
+        "PPT",
+        "AKA",
+        "ESK",
+        "HAR",
+        "RAW",
+        "AMA",
+        "MAS",
+        "EVO",
+        "EZD",
+        "JOB",
+        "KUM",
+        "CHE",
+        "BXH",
+        "GS",
+        "PRD",
+        "PPP"
+      ]
+    },
+    "kmp_84": {
+      "maker_prefix": "84",
+      "channels": [
+        "digital_padded",
+        "mono_raw",
+        "digital_legacy_padded",
+        "mono_padded"
+      ],
+      "prefixes": [
+        "MKMP",
+        "KMHR",
+        "BAZX",
+        "MOGI",
+        "SABA",
+        "SUPA",
+        "OKAX",
+        "TOTK"
+      ]
+    },
+    "ibworks_504z": {
+      "maker_prefix": "504",
+      "cid_suffix": "z",
+      "channels": [
+        "digital_padded",
+        "mono_raw",
+        "digital_legacy_padded",
+        "mono_padded"
+      ],
+      "prefixes": [
+        "IBW"
+      ]
+    },
+    "glory_quest_13": {
+      "maker_prefix": "13",
+      "channels": [
+        "digital_padded",
+        "mono_raw",
+        "digital_legacy_padded",
+        "mono_padded"
+      ],
+      "prefixes": [
+        "GVH",
+        "GVG",
+        "RVG",
+        "OVG"
+      ]
+    },
+    "planet_plus_h237": {
+      "maker_prefix": "h_237",
+      "channels": [
+        "digital_padded",
+        "mono_raw",
+        "digital_legacy_padded",
+        "mono_padded"
+      ],
+      "prefixes": [
+        "NACR",
+        "HDKA",
+        "AMBI",
+        "AMBS",
+        "CLOT",
+        "CEMD"
+      ]
+    },
+    "dream_ticket_24": {
+      "maker_prefix": "24",
+      "channels": [
+        "digital_padded",
+        "mono_raw",
+        "digital_legacy_padded",
+        "mono_padded"
+      ],
+      "prefixes": [
+        "VDD"
+      ]
+    },
+    "marrion_h618": {
+      "maker_prefix": "h_618",
+      "channels": [
+        "digital_padded",
+        "digital_legacy_padded",
+        "mono_raw",
+        "mono_padded"
+      ],
+      "prefixes": [
+        "MKZ"
+      ]
+    },
+    "dmm_amateur": {
+      "maker_prefix": "",
+      "channels": [
+        "amateur_raw",
+        "digital_padded",
+        "mono_raw"
+      ],
+      "prefixes": [
+        "ANKK",
+        "SIRO",
+        "GANA",
+        "MIUM",
+        "LUXU",
+        "MAAN",
+        "NTK",
+        "ARA",
+        "JAC",
+        "OREC"
+      ]
+    },
+    "rebecca_h346": {
+      "maker_prefix": "h_346",
+      "channels": [
+        "digital_padded",
+        "mono_raw",
+        "mono_padded"
+      ],
+      "prefixes": [
+        "REBD"
+      ]
+    },
+    "center_village_h086": {
+      "maker_prefix": "h_086",
+      "channels": [
+        "digital_padded",
+        "mono_raw",
+        "mono_padded"
+      ],
+      "prefixes": [
+        "JRZE",
+        "FER",
+        "HONE",
+        "KEED",
+        "ZEAA",
+        "CVDX"
+      ]
+    },
+    "maxing_h068": {
+      "maker_prefix": "h_068",
+      "channels": [
+        "digital_padded",
+        "mono_raw",
+        "mono_padded"
+      ],
+      "prefixes": [
+        "MXGS",
+        "MXSPS"
+      ]
+    },
+    "tma_55": {
+      "maker_prefix": "55",
+      "channels": [
+        "digital_padded",
+        "mono_raw",
+        "mono_padded"
+      ],
+      "prefixes": [
+        "T28",
+        "TMA"
+      ]
+    },
+    "alice_japan_53": {
+      "maker_prefix": "53",
+      "channels": [
+        "digital_padded",
+        "mono_raw",
+        "mono_padded"
+      ],
+      "prefixes": [
+        "DV",
+        "DVAJ"
+      ]
+    },
+    "max_a_60": {
+      "maker_prefix": "60",
+      "channels": [
+        "mono_raw",
+        "digital_padded",
+        "mono_padded"
+      ],
+      "prefixes": [
+        "XV",
+        "SRXV"
+      ]
+    }
+  },
+  "fallback_maker_prefixes": [
+    "",
+    "1",
+    "118"
+  ]
+}
